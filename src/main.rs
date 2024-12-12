@@ -110,6 +110,21 @@ fn main() -> io::Result<()> {
 
     let binfiles = utility::get_binfiles(bindir,format)?;
 
+    // Final merge bins directory
+    let resultpath: PathBuf = bindir
+            .join("mergedbins");
+    if resultpath.exists() {
+        fs::remove_dir_all(&resultpath)?;
+    }
+    fs::create_dir(&resultpath)?;
+    
+    let qualitybinpath: PathBuf = bindir
+        .join("qualitybins");
+    if qualitybinpath.exists() {
+        fs::remove_dir_all(&qualitybinpath)?;
+    }
+    fs::create_dir(&qualitybinpath)?;
+    
     for bin in binfiles {
         let binspecificdir = bindir.join(
             bin.file_name()
@@ -125,12 +140,6 @@ fn main() -> io::Result<()> {
         }
         fs::create_dir(&mergedbinpath)?;
             
-        let qualitybinpath: PathBuf = binspecificdir
-            .join("qualitybins");
-        if qualitybinpath.exists() {
-            fs::remove_dir_all(&qualitybinpath)?;
-        }
-        fs::create_dir(&qualitybinpath)?;
         
         // *** Obtain quality of bins ***
         let checkm2_outputpath: PathBuf = binspecificdir
@@ -145,7 +154,8 @@ fn main() -> io::Result<()> {
             bindir,
             &qualitybinpath,
             &checkm2_qualities,
-            format)?;
+            format,
+            true)?;
                 
                 
         // *** Find connected samples ***
@@ -154,12 +164,11 @@ fn main() -> io::Result<()> {
         let cluster_output = binspecificdir.join("linclust");
         
         let graph = utility::find_overlappingbins(
-            &&binspecificdir.join(format!("onlypurebins.{}", format)),
+            &&binspecificdir.join(format!("combined.{}", format)),
             cluster_output,
             min_overlaplen)?;
         let connected_samples = utility::get_connected_samples(&graph);
-        println!("{:?}", connected_samples);
-
+        
         for (i, comp) in connected_samples.iter().enumerate() {
 
             // *** check quality of the components if merged ***
@@ -183,12 +192,13 @@ fn main() -> io::Result<()> {
                 &selected_binset_path,
                 &checkm2_subsetpath,
                 &checkm2_qualities,
-                format
+                format,
+                false,
             )?;
 
             if let Some(bin_quality) = mergebin_qualities.get("combined") {
                 // combined bin has low contamination, it will be processed further
-                if bin_quality.contamination < 10f64 {
+                if bin_quality.contamination < 5f64 {
                     let _ = rename(selected_binset_path.join(format!("combined.{}",format)), 
                     mergedbinpath.join(format!("{}_combined.{}",i.to_string(), format)));
                 } else {
@@ -254,7 +264,7 @@ fn main() -> io::Result<()> {
             match status {
                 Ok(true) => {
                     let _ = rename(reassembly_outputdir.join("scaffolds.fasta"), 
-                    mergedbinpath.join(format!("{}_final.{}",i.to_string(), format)));
+                    resultpath.join(format!("{}_final.{}",i.to_string(), format)));
                 }
                 Ok(false) => {
                     // *** select highest completeness bin ***
@@ -269,28 +279,28 @@ fn main() -> io::Result<()> {
                     
                     // *** output the combined bin ***
                     let _ = rename(mergedbinpath.join(format!("{}_combined.{}",i.to_string(), format)), 
-                    mergedbinpath.join(format!("{}_final.{}",i.to_string(), format)));
+                    resultpath.join(format!("{}_final.{}",i.to_string(), format)));
                 }
                 Err(_) => todo!(),
             }
             // clean folders
             let _ = fs::remove_dir_all(reassembly_outputdir);
-            let _ = fs::remove_dir_all(mergedbinpath
-                .join(
-                format!("{}_combined*"
-                ,i.to_string())));
-            // let pattern = &format!("{}_combined*", i.to_string());
-            // let _ = remove_files_matching_pattern(
-            //     &mergedbinpath,
-            //     pattern);
+            let pattern = &format!("{}_combined*", i.to_string());
+            let _ = utility::remove_files_matching_pattern(
+                &mergedbinpath,
+                pattern);
         }
         // clean folders
-        let _ = fs::remove_file(binspecificdir.join(format!("*.{}",format)));
-        let _ = fs::remove_file(binspecificdir.join("*.fastq"));
-        let _ = fs::remove_file(binspecificdir.join("*_scaffolds*"));
+        let pattern = &format!("*.{}", format);
+        let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
+        let pattern = &format!("*.fastq");
+        let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
+        let pattern = &format!("*_scaffolds*");
+        let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
         let _ = fs::remove_dir_all(checkm2_outputpath);
+        let _ = fs::remove_dir_all(binspecificdir);
     }
     
-    println!("{:?} successfully merged bins for input ", bindir);
+    println!("Successfully merged bins for input {:?}", bindir);
     Ok(())
 }

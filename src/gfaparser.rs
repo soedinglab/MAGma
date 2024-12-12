@@ -5,16 +5,12 @@ use std::io::{self, BufRead, Write};
 
 #[derive(Debug)]
 struct GfaGraph {
-    // Mapping from scaffold ID to its constituent segments
     scaffold_to_segments: HashMap<String, Vec<String>>,
-    // Mapping from segment ID to its scaffold
     segment_to_scaffold: HashMap<String, String>,
-    // Graph of scaffolds connected by overlaps
     scaffold_graph: HashMap<String, HashSet<String>>,
 }
 
 impl GfaGraph {
-    /// Creates a new empty GfaGraph.
     fn new() -> Self {
         GfaGraph {
             scaffold_to_segments: HashMap::new(),
@@ -23,19 +19,17 @@ impl GfaGraph {
         }
     }
 
-    /// Parses a P line to map scaffolds to segments.
+    // *** Parsing Path lines to map scaffolds to segments ***
     fn add_path(&mut self, scaffold: String, segments: Vec<String>) {
         for segment in &segments {
-            // Remove the orientation (+/-) for the segment mapping
             let clean_segment = segment.trim_end_matches(&['+', '-']);
             self.segment_to_scaffold.insert(clean_segment.to_string(), scaffold.clone());
         }
         self.scaffold_to_segments.insert(scaffold, segments);
     }
 
-    /// Adds an overlap between two segments, linking their scaffolds.
+    // *** Adds an overlap between two segments, linking their scaffolds ***
     fn add_overlap(&mut self, seg1: String, seg2: String) {
-        // Remove orientations (+/-) for clean segment names
         let seg1 = seg1.trim_end_matches(&['+', '-']).to_string();
         let seg2 = seg2.trim_end_matches(&['+', '-']).to_string();
 
@@ -56,7 +50,7 @@ impl GfaGraph {
         }
     }
 
-    /// Finds connected components of scaffolds.
+    // *** Finds connected components of scaffolds ***
     fn connected_components(&self) -> Vec<HashSet<String>> {
         let mut visited = HashSet::new();
         let mut components = Vec::new();
@@ -92,7 +86,6 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
-/// Parses a GFA file and constructs a GfaGraph.
 fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
 
     let mut graph = GfaGraph::new();
@@ -111,7 +104,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         }
     }
 
-    // Step 2: Process Path lines first
+    // *** Process Path lines first ***
     for line in path_lines {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, scaffold, segments, _] = &fields[..] {
@@ -123,6 +116,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         }
     }
 
+    // *** Process link lines ***
     for line in link_lines {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, seg1, _, seg2, _, _] = &fields[..] {
@@ -136,7 +130,6 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
 fn get_output_filename(input_file: &str) -> PathBuf {
     let path = Path::new(input_file);
     
-    // Get the directory of the GFA file (unwrap safely with a default)
     let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
     
     let filename = path.file_stem()
@@ -148,9 +141,7 @@ fn get_output_filename(input_file: &str) -> PathBuf {
 fn get_output_scaffoldname(bin_fasta: &str) -> PathBuf {
     let path = Path::new(bin_fasta);
     
-    // Get the directory of the GFA file (unwrap safely with a default)
     let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    
     let filename = path.file_stem()
         .map(|stem| stem.to_str().unwrap_or("default"))
         .unwrap_or("default");
@@ -177,7 +168,7 @@ fn write_combined_fasta(
     let mut output_file = io::BufWriter::new(output_file);
 
     let mut enriched_scaffolds = bin_scaffolds.clone();
-    // a complete set of scaffolds
+
     enriched_scaffolds.extend(connected_scaffolds.iter().cloned());
 
     let mut current_scaffold = String::new();
@@ -198,7 +189,7 @@ fn write_combined_fasta(
         }
     }
 
-    // Last line scaffold
+    // *** Last line scaffold ***
     if !current_scaffold.is_empty() 
         && enriched_scaffolds.contains(&current_scaffold)
         && current_sequence.len() >=300 {
@@ -244,7 +235,6 @@ fn read_mapid_file(mapid_file: &str) -> io::Result<HashMap<String, String>> {
     Ok(read_to_scaffold)
 }
 
-/// Writes selected reads to a FASTQ file.
 fn write_selected_reads(
     fastq_file: &str,
     enriched_scaffolds: &HashSet<String>,
@@ -294,7 +284,6 @@ fn write_selected_reads(
 }
 
 
-/// Pub function to process a GFA file and print connected components.
 pub fn parse_gfa_fastq(
     gfa_file: &str,
     bin_fasta: &str,
@@ -308,7 +297,7 @@ pub fn parse_gfa_fastq(
     let graph = parse_gfa(gfa_file)?;
 
     let bin_scaffolds = read_fasta(bin_fasta)?;
-    // Find connected components of scaffolds
+    // *** Find connected components of scaffolds ***
     let components = graph.connected_components();
 
     let mut connected_scaffolds = HashSet::new();
@@ -357,6 +346,5 @@ pub fn parse_gfa_fastq(
     for (i, component) in components.iter().enumerate() {
         writeln!(output_cc, "Component {}: {:?}", i + 1, component)?;
     }
-    println!("Connected components written to {:?}",output_file);
     Ok(())
 }

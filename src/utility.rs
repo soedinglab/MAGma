@@ -8,7 +8,7 @@ use petgraph::graph::Graph;
 use petgraph::visit::Dfs;
 use petgraph::Undirected;
 use std::process::{Command as ProcessCommand, Stdio, exit};
-
+use glob::glob;
 
 pub struct BinQuality {
     pub completeness: f64,
@@ -26,6 +26,30 @@ pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str) -> &'a PathBu
 
 pub fn path_to_str(path: &PathBuf) -> &str {
     path.to_str().expect("Failed to convert PathBuf to &str")
+}
+
+pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_file() {
+            let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
+            if filename.contains("_all_seqs") || filename.contains("rep_seq") || filename.contains("combined") {
+                continue;
+            }
+
+            if let Some(ext) = path.extension() {
+                if ext == extension {
+                    files.push(path);
+                }
+            }
+        }
+    }
+
+    Ok(files)
 }
 
 pub fn splitbysampleid(
@@ -100,30 +124,6 @@ pub fn write_line_to_file(
     Ok(())
 }
 
-pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
-            if filename.contains("_all_seqs") || filename.contains("rep_seq") || filename.contains("combined") {
-                continue;
-            }
-
-            if let Some(ext) = path.extension() {
-                if ext == extension {
-                    files.push(path);
-                }
-            }
-        }
-    }
-
-    Ok(files)
-}
-
 pub fn assess_bins(
     bindir: &PathBuf,
     bincheckm2: &PathBuf,
@@ -134,7 +134,7 @@ pub fn assess_bins(
         
     // Run CheckM2 run
     if !checkm2_qualities.exists() {
-        println!("quality_report.tsv not found. Running checkm2...");
+        // println!("{:?}/quality_report.tsv not found. Running checkm2...", bindir);
         
         let output = ProcessCommand::new("checkm2")
             .arg("predict")
@@ -147,6 +147,8 @@ pub fn assess_bins(
             .arg("-x")
             .arg(format)
             .arg("--force")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()?;
 
         if !output.success() {
@@ -162,6 +164,7 @@ pub fn parse_bins_quality(
     movebinpath: &PathBuf,
     checkm2_qualities: &PathBuf,
     format: &str,
+    movebin_flag: bool,
 ) -> io::Result<HashMap<String, BinQuality>> {
 
 
@@ -184,7 +187,7 @@ pub fn parse_bins_quality(
 
         // Filter bins by contamination
         if contamination < 5.0f64 {
-            if completeness > 95f64 {
+            if completeness > 95f64 && movebin_flag {
                 let bin_file_path = inputdir.join(format!("{}.{}", bin_name, format));
                 let destination_path = movebinpath.join(format!("{}.{}", bin_name, format));
                 fs::copy(&bin_file_path, &destination_path)?;
@@ -206,7 +209,7 @@ pub fn combine_fastabins(
     combined_bins: &Path,
 ) -> io::Result<()> {
     // Combine bins fasta into a single file
-    let mut output_writer = File::create(combined_bins.join(format!("onlypurebins.{}", format)))?;
+    let mut output_writer = File::create(combined_bins.join(format!("combined.{}", format)))?;
     for bin_name in bin_names {
         let bin_file_path = inputdir.join(format!("{}.{}", bin_name, format));
 
@@ -386,7 +389,11 @@ pub fn run_reassembly(
             Ok(true)
         }
         Ok(_) => {
-            eprintln!("NOTE: SPAdes failed!\nThis is likely due to small input bin and insufficient k-mer counts from readset.");
+            eprintln!("NOTE: SPAdes failed for {:?}! This is likely due to small input bin and insufficient k-mer counts from readset."
+                ,binfile.iter()
+                .rev()
+                .nth(2)  // nth(2) gives the third component (0-based index)
+                .map(|bin| bin.to_string_lossy().to_string()).unwrap());
             Ok(false)
         }
         Err(e) => {
@@ -396,26 +403,26 @@ pub fn run_reassembly(
     }
 }
 
-// pub fn remove_files_matching_pattern(
-//     directory: &Path,
-//     pattern: &str
-// ) -> io::Result<()> {
-//     let search_pattern = 
-//         directory
-//         .join(pattern)
-//         .to_string_lossy()
-//         .to_string();
-//     for entry in glob(&search_pattern)
-//         .map_err(|e
-//         | io::Error::new(
-//         io::ErrorKind::Other,
-//         e.to_string()))? {
-//         match entry {
-//             Ok(path) => {
-//                 let _ = fs::remove_file(&path).is_err();
-//             }
-//             Err(e) => eprintln!("Failed to read matching file: {:?}", e),
-//         }
-//     }
-//     Ok(())
-// }
+pub fn remove_files_matching_pattern(
+    directory: &Path,
+    pattern: &str
+) -> io::Result<()> {
+    let search_pattern = 
+        directory
+        .join(pattern)
+        .to_string_lossy()
+        .to_string();
+    for entry in glob(&search_pattern)
+        .map_err(|e
+        | io::Error::new(
+        io::ErrorKind::Other,
+        e.to_string()))? {
+        match entry {
+            Ok(path) => {
+                let _ = fs::remove_file(&path).is_err();
+            }
+            Err(e) => eprintln!("Failed to read matching file: {:?}", e),
+        }
+    }
+    Ok(())
+}
