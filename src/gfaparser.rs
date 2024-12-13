@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{File, read_to_string, OpenOptions};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
+use flate2::read::GzDecoder;
 
 #[derive(Debug)]
 struct GfaGraph {
@@ -249,7 +250,11 @@ fn write_selected_reads(
         .map(|(read, _)| read.clone())
         .collect();
     let file = File::open(fastq_file)?;
-    let reader = io::BufReader::new(file);
+    let reader: Box<dyn BufRead> = if fastq_file.ends_with(".gz") {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
     let output_file = if create_new {
         File::create(&output_fastq)? // Create a new file if flag is true
     } else {
