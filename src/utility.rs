@@ -15,17 +15,66 @@ pub struct BinQuality {
     pub contamination: f64,
 }
 
-pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str) -> &'a PathBuf {
+pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str) -> &'a PathBuf {
     let path = path.expect(&format!("{} path is required", name));
+    
     if !path.exists() {
         eprintln!("Error: The specified path for {} does not exist", name);
         std::process::exit(1);
     }
+
+    if !path.is_dir() {
+        eprintln!("Error: The specified path for {} is not a directory", name);
+        exit(1);
+    }
+
+    let contains_files_with_suffix = fs::read_dir(path)
+        .expect("Failed to read directory")
+        .filter_map(|entry| entry.ok()) // Filter out invalid entries
+        .any(|entry| {
+            if let Some(file_name) = entry.file_name().to_str() {
+                file_name.contains(suffix)
+            } else {
+                false
+            }
+        });
+
+    if !contains_files_with_suffix {
+        eprintln!(
+            "Error: The directory for {} does not contain any files with the required extention/suffix '{}'",
+            name, suffix
+        );
+        std::process::exit(1);
+    }
+
     path
 }
 
 pub fn path_to_str(path: &PathBuf) -> &str {
     path.to_str().expect("Failed to convert PathBuf to &str")
+}
+
+pub fn check_paired_reads(directory: &PathBuf) -> bool {
+    fs::read_dir(directory)
+        .ok()
+        .and_then(|entries
+        | { entries
+            .filter_map(|entry
+            | entry.ok()?.file_name()
+            .to_str().map(String::from))
+            .find(|name
+            | name.contains("_1") || name.contains("_2"))
+    })
+    .is_some()
+}
+
+pub fn find_file_with_extension(directory: &PathBuf, base_name: &str) -> PathBuf {
+    let fastq = directory.join(format!("{}.fastq", base_name));
+    if fastq.exists() {
+        fastq
+    } else {
+        directory.join(format!("{}.fastq.gz", base_name))
+    }
 }
 
 pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
@@ -36,7 +85,9 @@ pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
         let path = entry.path();
 
         if path.is_file() {
-            let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
+            let filename = path.file_name()
+                .unwrap_or_default()
+                .to_str().unwrap_or_default();
             if filename.contains("_all_seqs") || filename.contains("rep_seq") || filename.contains("combined") {
                 continue;
             }
@@ -131,31 +182,35 @@ pub fn assess_bins(
     format: &str,
 ) -> Result<PathBuf, io::Error> {
     let checkm2_qualities = Path::new(bincheckm2).join("quality_report.tsv");
-        
     // Run CheckM2 run
     if !checkm2_qualities.exists() {
         // println!("{:?}/quality_report.tsv not found. Running checkm2...", bindir);
-        
-        let output = ProcessCommand::new("checkm2")
-            .arg("predict")
-            .arg("-i")
-            .arg(bindir)
-            .arg("-o")
-            .arg(bincheckm2)
-            .arg("-t")
-            .arg(threads.to_string())
-            .arg("-x")
-            .arg(format)
-            .arg("--force")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()?;
-
-        if !output.success() {
-            eprintln!("Error: checkm2 command failed");
-            exit(1);
+        let mut output = ProcessCommand::new("checkm2");
+        output
+        .arg("predict")
+        .arg("-i")
+        .arg(bindir)
+        .arg("-o")
+        .arg(bincheckm2)
+        .arg("-t")
+        .arg(threads.to_string())
+        .arg("-x")
+        .arg(format)
+        .arg("--force")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    
+        match output.status() {
+            Ok(_) => {
+                
+                // eprintln!("NOTE: CheckM2 failed for {:?}! Check (-x) input format is incorrect."
+                // ,bindir);
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to execute CheckM2 command - {}. Check if CheckM2 is executable currently", e);
+            }
         }
-    }
+    }    
     Ok(checkm2_qualities)
 }
 
@@ -163,7 +218,6 @@ pub fn parse_bins_quality(
     inputdir: &PathBuf,
     movebinpath: &PathBuf,
     checkm2_qualities: &PathBuf,
-    format: &str,
     movebin_flag: bool,
 ) -> io::Result<HashMap<String, BinQuality>> {
 
@@ -184,12 +238,12 @@ pub fn parse_bins_quality(
         let bin_name = record[0].to_string();
         let completeness: f64 = record[1].parse().unwrap_or(0.0);
         let contamination: f64 = record[2].parse().unwrap_or(0.0);
-
+        println!("bin_name {:?} completeness {:?} contamination {:?}", bin_name, completeness, contamination);
         // Filter bins by contamination
         if contamination < 5.0f64 {
             if completeness > 95f64 && movebin_flag {
-                let bin_file_path = inputdir.join(format!("{}.{}", bin_name, format));
-                let destination_path = movebinpath.join(format!("{}.{}", bin_name, format));
+                let bin_file_path = inputdir.join(format!("{}.fasta", bin_name));
+                let destination_path = movebinpath.join(format!("{}.fasta", bin_name));
                 fs::copy(&bin_file_path, &destination_path)?;
                 println!("Copied existing high quality (96% comp, <5% cont) bin '{}' to '{}'", 
                     bin_name, movebinpath.display());
@@ -205,13 +259,14 @@ pub fn parse_bins_quality(
 pub fn combine_fastabins(
     inputdir: &Path,
     bin_names: &HashSet<String>,
-    format: &str,
     combined_bins: &Path,
 ) -> io::Result<()> {
     // Combine bins fasta into a single file
-    let mut output_writer = File::create(combined_bins.join(format!("combined.{}", format)))?;
+    let mut output_writer = File::create(
+        combined_bins
+        .join(format!("combined.fasta")))?;
     for bin_name in bin_names {
-        let bin_file_path = inputdir.join(format!("{}.{}", bin_name, format));
+        let bin_file_path = inputdir.join(format!("{}.fasta", bin_name));
 
         if bin_file_path.exists() {
             let bin_file = File::open(&bin_file_path)?;
@@ -233,6 +288,7 @@ pub fn find_overlappingbins(
     bins: &PathBuf,
     cluster_output: PathBuf,
     min_overlaplen: usize,
+    threads: usize,
 ) -> io::Result<Graph<String, (), Undirected>> {
     let output = ProcessCommand::new("mmseqs")
         .arg("easy-linclust")
@@ -245,6 +301,8 @@ pub fn find_overlappingbins(
         .arg(min_overlaplen.to_string())
         .arg("--kmer-per-seq-scale")
         .arg("0.3")
+        .arg("--threads")
+        .arg(threads.to_string())
         .stdout(Stdio::null())
         // .stderr(Stdio::null())
         .status()?; // Execute the command and get the status
@@ -314,7 +372,6 @@ pub fn get_connected_samples(
                     component.insert(node_name);
                 }
             }
-
             connected_samples.push(component);
         }
     }
@@ -326,9 +383,9 @@ pub fn select_highcompletebin(
     comp: &HashSet<String>,
     bin_qualities: &HashMap<String, BinQuality>,
     binspecificdir: &PathBuf,
-    mergedbinpath: &PathBuf,
+    outputpath: &PathBuf,
     _i: usize,
-    format: &str
+    bin_name: &str,
 ) -> io::Result<()> {
     let highest_completebin = comp
         .iter()
@@ -342,10 +399,10 @@ pub fn select_highcompletebin(
         .unwrap_or(std::cmp::Ordering::Equal))
         .map(|(bin, _)| bin.clone());
     
-    if let Some(bin) = highest_completebin {
-        let bin_path = binspecificdir.join(format!("{}.{}", bin, format));
-        println!("{:?} {:?} highest bin complete", bin_path, format);
-        rename(bin_path, mergedbinpath.join(format!("{}_final.{}",_i.to_string(), format)))?;
+    if let Some(bin_sample) = highest_completebin {
+        let bin_path = binspecificdir.join(format!("{}.fasta", bin_sample));
+        println!("{:?} highest bin complete", bin_path);
+        rename(bin_path, outputpath.join(format!("{}_{}_final.fasta",bin_name, _i.to_string())))?;
     } else {
         eprintln!("Error: No bin found with highest completeness.");
     }
