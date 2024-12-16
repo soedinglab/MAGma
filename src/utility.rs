@@ -8,6 +8,7 @@ use petgraph::graph::Graph;
 use petgraph::visit::Dfs;
 use petgraph::Undirected;
 use std::process::{Command as ProcessCommand, Stdio, exit};
+use log::{debug, info, error};
 use glob::glob;
 
 pub struct BinQuality {
@@ -19,12 +20,12 @@ pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str)
     let path = path.expect(&format!("{} path is required", name));
     
     if !path.exists() {
-        eprintln!("Error: The specified path for {} does not exist", name);
+        error!("Error: The specified path for {} does not exist", name);
         std::process::exit(1);
     }
 
     if !path.is_dir() {
-        eprintln!("Error: The specified path for {} is not a directory", name);
+        error!("Error: The specified path for {} is not a directory", name);
         exit(1);
     }
 
@@ -40,7 +41,7 @@ pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str)
         });
 
     if !contains_files_with_suffix {
-        eprintln!(
+        error!(
             "Error: The directory for {} does not contain any files with the required extention/suffix '{}'",
             name, suffix
         );
@@ -103,6 +104,31 @@ pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+pub fn get_gfa_file_names(dir: &Path) -> Vec<String> {
+    // Try to read the directory entries
+    match fs::read_dir(dir) {
+        Ok(entries) => {
+            // Filter and collect file names with .gfa extension
+            entries
+            .filter_map(|entry| entry.ok()) // Ignore errors when reading entries
+            .filter(|entry| {
+            entry
+            .path()
+            .extension()
+            .and_then(|ext| ext.to_str()) // Get the extension as a string
+            == Some("gfa")               // Compare the extension with "gfa"
+            })
+            .filter_map(|entry| {
+                // Extract just the file name without the extension
+            entry.path().file_stem().and_then(|name| name.to_str().map(|s| s.to_string()))
+            })
+            .collect() // Collect the file names into a Vec<String>
+        }
+        Err(_) => Vec::new(), // Return empty vector if directory reading fails
+    }
+}
+
+
 pub fn splitbysampleid(
     bin: &PathBuf,
     binspecificdir: &PathBuf,
@@ -133,7 +159,7 @@ pub fn extract_sample_id(line: &str) -> io::Result<String> {
     if let Some(idx) = line.find('C') {
         Ok(line[1..idx].to_string()) // Exclude the '>'
     } else {
-        eprintln!("Warning: Could not find 'C' in header: {}", line);
+        error!("Warning: Could not find 'C' in header: {}", line);
         Err(
         io::Error::new(
         io::ErrorKind::InvalidData
@@ -203,11 +229,11 @@ pub fn assess_bins(
         match output.status() {
             Ok(_) => {
                 
-                // eprintln!("NOTE: CheckM2 failed for {:?}! Check (-x) input format is incorrect."
+                // error!("NOTE: CheckM2 failed for {:?}! Check (-x) input format is incorrect."
                 // ,bindir);
             }
             Err(e) => {
-                eprintln!("Error: Failed to execute CheckM2 command - {}. Check if CheckM2 is executable currently", e);
+                error!("Error: Failed to execute CheckM2 command - {}. Check if CheckM2 is executable currently", e);
             }
         }
     }    
@@ -218,6 +244,7 @@ pub fn parse_bins_quality(
     inputdir: &PathBuf,
     movebinpath: &PathBuf,
     checkm2_qualities: &PathBuf,
+    bin_name: &str,
     movebin_flag: bool,
 ) -> io::Result<HashMap<String, BinQuality>> {
 
@@ -232,23 +259,25 @@ pub fn parse_bins_quality(
     for result in rdr.records() {
         let record = result?; // Get the record from the CSV
         if record.len() < 3 {
-            eprintln!("Skipping invalid record: {:?}", record);
+            error!("Skipping invalid record: {:?}", record);
             continue; // Skip records that do not have enough columns
         }
-        let bin_name = record[0].to_string();
+        let sample_id = record[0].to_string();
         let completeness: f64 = record[1].parse().unwrap_or(0.0);
         let contamination: f64 = record[2].parse().unwrap_or(0.0);
-        println!("bin_name {:?} completeness {:?} contamination {:?}", bin_name, completeness, contamination);
+        debug!("checkm2 {:?} sample_id {:?} completeness {:?} contamination {:?}", checkm2_qualities, sample_id, completeness, contamination);
         // Filter bins by contamination
         if contamination < 5.0f64 {
             if completeness > 95f64 && movebin_flag {
-                let bin_file_path = inputdir.join(format!("{}.fasta", bin_name));
-                let destination_path = movebinpath.join(format!("{}.fasta", bin_name));
+                let bin_file_path = inputdir.join(format!("{}.fasta", sample_id));
+                let destination_path = movebinpath.join(format!("{}_{}.fasta", bin_name, sample_id));
+                debug!("bin_file path: {:?} \n destination_path: {:?}", bin_file_path, destination_path);
                 fs::copy(&bin_file_path, &destination_path)?;
-                println!("Copied existing high quality (96% comp, <5% cont) bin '{}' to '{}'", 
+                debug!("Copied existing high quality (96% comp, <5% cont) bin '{}' to '{}'", 
                     bin_name, movebinpath.display());
             } else {
-                bin_qualities.insert(bin_name, 
+                debug!("inserting {} with completeness {} and contamination {}", bin_name, completeness, contamination);
+                bin_qualities.insert(sample_id, 
                 BinQuality{ completeness, contamination });
             }
         }
@@ -278,7 +307,7 @@ pub fn combine_fastabins(
                 writeln!(output_writer, "{}", String::from_utf8_lossy(record.seq()))?;
             }
         } else {
-            eprintln!("Warning: File for bin '{}' does not exist at {:?}", bin_name, bin_file_path);
+            error!("Warning: File for bin '{}' does not exist at {:?}", bin_name, bin_file_path);
         }
     }
     Ok(())
@@ -290,11 +319,16 @@ pub fn find_overlappingbins(
     min_overlaplen: usize,
     threads: usize,
 ) -> io::Result<Graph<String, (), Undirected>> {
+    let tmpdir = cluster_output
+        .parent()
+        .unwrap_or_else(
+            || Path::new("/")
+        ).join("tmp");
     let output = ProcessCommand::new("mmseqs")
         .arg("easy-linclust")
         .arg(bins)
         .arg(cluster_output.clone())
-        .arg("tmp")
+        .arg(tmpdir)
         .arg("--min-seq-id")
         .arg("1.0")
         .arg("--min-aln-len")
@@ -308,7 +342,7 @@ pub fn find_overlappingbins(
         .status()?; // Execute the command and get the status
 
     if !output.success() {
-        eprintln!("Error: mmseqs easy-linclust failed");
+        error!("Error: mmseqs easy-linclust failed");
         exit(1); // Exit if the command fails
     }
 
@@ -375,7 +409,6 @@ pub fn get_connected_samples(
             connected_samples.push(component);
         }
     }
-
     connected_samples
 }
 
@@ -384,7 +417,7 @@ pub fn select_highcompletebin(
     bin_qualities: &HashMap<String, BinQuality>,
     binspecificdir: &PathBuf,
     outputpath: &PathBuf,
-    _i: usize,
+    _i: Option<String>,
     bin_name: &str,
 ) -> io::Result<()> {
     let highest_completebin = comp
@@ -399,12 +432,23 @@ pub fn select_highcompletebin(
         .unwrap_or(std::cmp::Ordering::Equal))
         .map(|(bin, _)| bin.clone());
     
-    if let Some(bin_sample) = highest_completebin {
-        let bin_path = binspecificdir.join(format!("{}.fasta", bin_sample));
-        println!("{:?} highest bin complete", bin_path);
-        rename(bin_path, outputpath.join(format!("{}_{}_final.fasta",bin_name, _i.to_string())))?;
+    if let Some(sample_id) = highest_completebin {
+        let bin_path = binspecificdir.join(format!("{}.fasta", sample_id));
+        debug!("{:?} highest bin complete", bin_path);
+        if _i.is_none() {
+            let sid = Some(sample_id.to_string());
+            rename(bin_path,
+                outputpath
+                .join(
+                format!("{}_{}_final.fasta",bin_name,sid.unwrap())))?;
+        } else {
+            rename(bin_path,
+                outputpath
+                .join(
+                format!("{}_{}_final.fasta",bin_name, _i.unwrap())))?;
+        }
     } else {
-        eprintln!("Error: No bin found with highest completeness.");
+        debug!("No bin found with highest completeness for {:?}", bin_name);
     }
     Ok(())
 }
@@ -418,7 +462,7 @@ pub fn run_reassembly(
 ) -> io::Result<bool> {
     
     if readfile.is_empty() {
-        eprintln!("Error: No read files provided.");
+        error!("Error: No read files provided.");
         exit(1);
     }
     // Run SPAdes assembler
@@ -442,11 +486,11 @@ pub fn run_reassembly(
 
     match output.status() {
         Ok(status) if status.success() => {
-            println!("SPAdes completed successfully.");
+            info!("SPAdes completed successfully for {:?}", binfile);
             Ok(true)
         }
         Ok(_) => {
-            eprintln!("NOTE: SPAdes failed for {:?}! This is likely due to small input bin and insufficient k-mer counts from readset."
+            error!("NOTE: SPAdes failed for {:?}! This is likely due to small input bin and insufficient k-mer counts from readset."
                 ,binfile.iter()
                 .rev()
                 .nth(2)  // nth(2) gives the third component (0-based index)
@@ -454,7 +498,7 @@ pub fn run_reassembly(
             Ok(false)
         }
         Err(e) => {
-            eprintln!("Error: Failed to execute SPAdes command - {}", e);
+            error!("Error: Failed to execute SPAdes command - {}", e);
             Err(e)
         }
     }
@@ -478,7 +522,7 @@ pub fn remove_files_matching_pattern(
             Ok(path) => {
                 let _ = fs::remove_file(&path).is_err();
             }
-            Err(e) => eprintln!("Failed to read matching file: {:?}", e),
+            Err(e) => error!("Failed to read matching file: {:?}", e),
         }
     }
     Ok(())

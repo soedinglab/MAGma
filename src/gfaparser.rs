@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs::{File, read_to_string, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use flate2::read::GzDecoder;
+use log::debug;
 
 #[derive(Debug)]
 struct GfaGraph {
@@ -20,7 +21,7 @@ impl GfaGraph {
         }
     }
 
-    // *** Parsing Path lines to map scaffolds to segments ***
+    // Parsing Path lines to map scaffolds to segments
     fn add_path(&mut self, scaffold: String, segments: Vec<String>) {
         for segment in &segments {
             let clean_segment = segment.trim_end_matches(&['+', '-']);
@@ -29,7 +30,7 @@ impl GfaGraph {
         self.scaffold_to_segments.insert(scaffold, segments);
     }
 
-    // *** Adds an overlap between two segments, linking their scaffolds ***
+    // Adds an overlap between two segments, linking their scaffolds
     fn add_overlap(&mut self, seg1: String, seg2: String) {
         let seg1 = seg1.trim_end_matches(&['+', '-']).to_string();
         let seg2 = seg2.trim_end_matches(&['+', '-']).to_string();
@@ -51,7 +52,7 @@ impl GfaGraph {
         }
     }
 
-    // *** Finds connected components of scaffolds ***
+    // Finds connected components of scaffolds
     fn connected_components(&self) -> Vec<HashSet<String>> {
         let mut visited = HashSet::new();
         let mut components = Vec::new();
@@ -105,7 +106,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         }
     }
 
-    // *** Process Path lines first ***
+    // Process Path lines first
     for line in path_lines {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, scaffold, segments, _] = &fields[..] {
@@ -117,7 +118,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         }
     }
 
-    // *** Process link lines ***
+    // Process link lines
     for line in link_lines {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, seg1, _, seg2, _, _] = &fields[..] {
@@ -190,7 +191,7 @@ fn write_combined_fasta(
         }
     }
 
-    // *** Last line scaffold ***
+    // Last line scaffold
     if !current_scaffold.is_empty() 
         && enriched_scaffolds.contains(&current_scaffold)
         && current_sequence.len() >=300 {
@@ -289,7 +290,6 @@ fn write_selected_reads(
     // }
     if is_paired {
         // Handle paired-end reads
-
         let file2 = File::open(fastq_file2.expect("Paired-end flag set but no second file provided"))?;
         let reader2: Box<dyn BufRead> = if fastq_file2.unwrap().ends_with(".gz") {
             Box::new(BufReader::new(GzDecoder::new(file2)))
@@ -381,9 +381,11 @@ pub fn parse_gfa_fastq(
 ) -> io::Result<()> {
 
     let graph = parse_gfa(gfa_file)?;
-
+    debug!("obtained graph for {:?}", gfa_file);
     let bin_scaffolds = read_fasta(bin_fasta)?;
-    // *** Find connected components of scaffolds ***
+    debug!("bin scaffold length is {:?}", bin_scaffolds.len());
+
+    // Find connected components of scaffolds
     let components = graph.connected_components();
 
     let mut connected_scaffolds = HashSet::new();
@@ -434,5 +436,6 @@ pub fn parse_gfa_fastq(
     for (i, component) in components.iter().enumerate() {
         writeln!(output_cc, "Component {}: {:?}", i + 1, component)?;
     }
+    debug!("connected components are written to {:?}", output_cc);
     Ok(())
 }
