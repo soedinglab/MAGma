@@ -364,7 +364,7 @@ fn process_bin(bin: PathBuf,
         }
         
         let mut create_new = true;
-        let mut enriched_scaffolds_map: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut all_enriched_scaffolds = HashSet::new();
         // TODO: As of now, it collects information from only source samples of bins.
         // All samples would be better option and needs to be tested.
         // for sample in sample_list {
@@ -393,13 +393,20 @@ fn process_bin(bin: PathBuf,
                 sample)),
                 create_new
             );
+            for scaffold in enriched_scaffolds {
+                // Check if the scaffold already contains the sample ID separated by 'C'.
+                if !scaffold.contains(&format!("{}C", sample)) {
+                    // Add sample ID to the scaffold if not present.
+                    let modified_scaffold = format!("{}C{}", sample, scaffold);
+                    all_enriched_scaffolds.insert(modified_scaffold);
+                } else {
+                    // If already present, keep the original scaffold.
+                    all_enriched_scaffolds.insert(scaffold);
+                }
+            }
         }
+        
         let create_new = true;
-        // let enriched_scaffold_file = utility::get_output_scaffoldname(binspecificdir
-        //     .join(
-        //     format!("{}.{}",
-        //     sample, format)).to_str().expect(""));
-        // TODO: get complete list of scaffolds with sample id in the contig names and use it in retriving reads sequences
         for sample in sample_list {
 
             let mapid_path = mapdir.join(format!("{}_mapids", sample));
@@ -423,7 +430,7 @@ fn process_bin(bin: PathBuf,
             }
 
             let _ = fetch_fastqreads(
-                enriched_scaffolds,
+                all_enriched_scaffolds,
                 mapid_file,
                 read_file,
                 read_file2,
