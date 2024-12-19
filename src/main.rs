@@ -430,7 +430,7 @@ fn process_bin(bin: PathBuf,
             }
 
             let _ = fetch_fastqreads(
-                all_enriched_scaffolds,
+                &all_enriched_scaffolds,
                 mapid_file,
                 read_file,
                 read_file2,
