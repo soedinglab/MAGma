@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{File, read_to_string, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
-use flate2::read::GzDecoder;
+use std::io::{self, BufRead, Write};
 use log::debug;
+use crate::utility;
 
 #[derive(Debug)]
 struct GfaGraph {
@@ -129,27 +129,6 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
 }
 
 
-fn get_output_filename(input_file: &str) -> PathBuf {
-    let path = Path::new(input_file);
-    
-    let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    
-    let filename = path.file_stem()
-        .map(|stem| stem.to_str().unwrap_or("default"))
-        .unwrap_or("default");
-    output_dir.join(format!("{}_connected_scaffolds", filename))
-}
-
-fn get_output_scaffoldname(bin_fasta: &str) -> PathBuf {
-    let path = Path::new(bin_fasta);
-    
-    let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let filename = path.file_stem()
-        .map(|stem| stem.to_str().unwrap_or("default"))
-        .unwrap_or("default");
-    output_dir.join(format!("{}_enriched.fasta", filename))
-}
-
 fn write_combined_fasta(
     bin_scaffolds: &HashSet<String>,
     connected_scaffolds: &HashSet<String>,
@@ -220,172 +199,24 @@ fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
     Ok(scaffolds)
 }
 
-fn read_mapid_file(mapid_file: &str) -> io::Result<HashMap<String, String>> {
-    let mut read_to_scaffold = HashMap::new();
-    let file = File::open(mapid_file)?;
-    let reader = io::BufReader::new(file);
-
-    for line in reader.lines() {
-        let line = line?;
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() == 2 {
-            let read_id = parts[0].split('.')
-                .next().unwrap_or("").to_string();
-            let scaffold_id = parts[1].to_string();
-            read_to_scaffold.insert(read_id, scaffold_id);
-        }
-    }
-    Ok(read_to_scaffold)
-}
-
-fn write_selected_reads(
-    fastq_file: &str,
-    fastq_file2: Option<&str>,
-    enriched_scaffolds: &HashSet<String>,
-    mapid_file: &str,
-    output_fastq: PathBuf,
-    is_paired: bool,
-    create_new: bool,
-) -> io::Result<()> {
-    let read_to_scaffold = read_mapid_file(mapid_file)?;
-    let selected_reads: HashSet<String> = read_to_scaffold
-        .iter()
-        .filter(|(_, scaffold)| enriched_scaffolds.contains(*scaffold))
-        .map(|(read, _)| read.clone())
-        .collect();
-    let file = File::open(fastq_file)?;
-    let reader: Box<dyn BufRead> = if fastq_file.ends_with(".gz") {
-        Box::new(BufReader::new(GzDecoder::new(file)))
-    } else {
-        Box::new(BufReader::new(file))
-    };
-    let output_file = if create_new {
-        File::create(&output_fastq)? // Create a new file if flag is true
-    } else {
-        OpenOptions::new()
-            .create(true)
-            .append(true)  // Open in append mode if flag is false
-            .open(&output_fastq)?
-    };
-
-    let mut output_file = io::BufWriter::new(output_file);
-
-    // let mut lines = reader.lines();
-    // while let Some(header) = lines.next() {
-    //     let sequence = lines.next().unwrap_or(Ok(String::new()))?;
-    //     let plus_line = lines.next().unwrap_or(Ok(String::new()))?;
-    //     let quality = lines.next().unwrap_or(Ok(String::new()))?;
-    //     let read_id = header?.to_string();
-    //     let read_id_trimmed = read_id
-    //         .trim_start_matches('@')
-    //         .trim_end_matches("/1")
-    //         .trim_end_matches("/2")
-    //         .to_string();
-    //     if selected_reads.contains(&read_id_trimmed) {
-    //         writeln!(output_file, "{}", read_id)?;
-    //         writeln!(output_file, "{}", sequence)?;
-    //         writeln!(output_file, "{}", plus_line)?;
-    //         writeln!(output_file, "{}", quality)?;
-    //     }
-    // }
-    if is_paired {
-        // Handle paired-end reads
-        let file2 = File::open(fastq_file2.expect("Paired-end flag set but no second file provided"))?;
-        let reader2: Box<dyn BufRead> = if fastq_file2.unwrap().ends_with(".gz") {
-            Box::new(BufReader::new(GzDecoder::new(file2)))
-        } else {
-            Box::new(BufReader::new(file2))
-        };
-
-        let mut lines1 = reader.lines();
-        let mut lines2 = reader2.lines();
-
-        while let (Some(header1), Some(header2)) = (lines1.next(), lines2.next()) {
-            let header1 = header1?;
-            let header2 = header2?;
-            if header1.starts_with('@') && header2.starts_with('@') {
-                let sequence1 = lines1.next()
-                    .unwrap_or(Ok(String::new()))?;
-                let plus_line1 = lines1.next()
-                    .unwrap_or(Ok(String::new()))?;
-                let quality1 = lines1.next()
-                    .unwrap_or(Ok(String::new()))?;
-
-                let sequence2 = lines2.next()
-                    .unwrap_or(Ok(String::new()))?;
-                let plus_line2 = lines2.next()
-                    .unwrap_or(Ok(String::new()))?;
-                let quality2 = lines2.next()
-                    .unwrap_or(Ok(String::new()))?;
-
-                let read_id_trimmed = header1
-                    .trim_start_matches('@')
-                    .trim_end_matches("/1")
-                    .to_string();
-
-                if selected_reads.contains(&read_id_trimmed) {
-                    writeln!(output_file, "{}", header1)?;
-                    writeln!(output_file, "{}", sequence1)?;
-                    writeln!(output_file, "{}", plus_line1)?;
-                    writeln!(output_file, "{}", quality1)?;
-
-                    writeln!(output_file, "{}", header2)?;
-                    writeln!(output_file, "{}", sequence2)?;
-                    writeln!(output_file, "{}", plus_line2)?;
-                    writeln!(output_file, "{}", quality2)?;
-                }
-            }
-        }
-    } else {
-        let mut lines = reader.lines();
-        while let Some(header) = lines.next() {
-            let header = header?;
-            if header.starts_with('@') {
-                let sequence = lines.next()
-                    .unwrap_or(Ok(String::new()))?;
-                let plus_line = lines.next()
-                    .unwrap_or(Ok(String::new()))?;
-                let quality = lines.next()
-                    .unwrap_or(Ok(String::new()))?;
-
-                let read_id_trimmed = header
-                    .trim_start_matches('@')
-                    .trim_end_matches("/1")
-                    .trim_end_matches("/2")
-                    .to_string();
-
-                if selected_reads.contains(&read_id_trimmed) {
-                    writeln!(output_file, "{}", header)?;
-                    writeln!(output_file, "{}", sequence)?;
-                    writeln!(output_file, "{}", plus_line)?;
-                    writeln!(output_file, "{}", quality)?;
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-// TODO: Paired reads handling
+// TODO: get enriched scaffolds from the source samples but reads obtain from all samples
 pub fn parse_gfa_fastq(
     gfa_file: &str,
     bin_fasta: &str,
     assembly_fasta: &str,
-    mapids: &str,
-    read_fastq: &str,
-    read_fastq2: Option<&str>,
     outputbin: PathBuf,
-    is_paired: bool,
     create_new: bool,
-) -> io::Result<()> {
+) -> io::Result<HashSet<String>> {
 
     let graph = parse_gfa(gfa_file)?;
     debug!("obtained graph for {:?}", gfa_file);
+
+    // eg: bin_scaffolds = {S1Ck141_1, S2Ck141_2 ... S2Ck141_N}
     let bin_scaffolds = read_fasta(bin_fasta)?;
     debug!("bin scaffold length is {:?}", bin_scaffolds.len());
 
     // Find connected components of scaffolds
+    // eg: components = Vec<{k141_1, k141_4}, {k141_6, k141_12, k141_564},...>
     let components = graph.connected_components();
 
     let mut connected_scaffolds = HashSet::new();
@@ -397,39 +228,29 @@ pub fn parse_gfa_fastq(
             }
         }
     }
-    let enriched_scaffolds = write_combined_fasta(
-        &bin_scaffolds, &connected_scaffolds, 
-        assembly_fasta, 
-        get_output_scaffoldname(outputbin.to_str().expect("")),
-        create_new)?;
+    // eg: output_fasta = <bindir>/bin_1/S1_enriched.fasta
+    let enriched_scaffolds = 
+        write_combined_fasta(
+            &bin_scaffolds,
+            &connected_scaffolds, 
+            assembly_fasta,
+            utility::get_output_scaffoldname(outputbin.to_str().expect("")),
+            create_new
+        )?;
 
-    let output_fastq = PathBuf::from(format!("{}",
-        get_output_scaffoldname(outputbin.to_str().expect(""))
-        .to_str()
-        .expect("Invalid UTF-8 in file path")
-        .replace(".fasta", ".fastq")));
-
-    let _ = write_selected_reads(
-        &read_fastq,
-        read_fastq2,
-        &enriched_scaffolds,
-        mapids,
-        output_fastq,
-        is_paired,
-        create_new);
-
-    let binding = get_output_filename(outputbin.to_str().expect(""));
+    // eg: output_fasta = <bindir>/bin_1_connected_components
+    let binding = utility::get_output_filename(outputbin.to_str().expect(""));
     let output_file = binding
         .to_str()
         .expect("Failed to convert PathBuf to &str");
 
     let mut output_cc = if create_new {
-        File::create(&get_output_filename(output_file))? // Create a new file if flag is true
+        File::create(&utility::get_output_filename(output_file))? // Create a new file if flag is true
     } else {
         OpenOptions::new()
             .create(true)
             .append(true)  // Open in append mode if flag is false
-            .open(&get_output_filename(output_file))?
+            .open(&utility::get_output_filename(output_file))?
     };
 
     writeln!(output_cc, "Connected components:")?;
@@ -437,5 +258,5 @@ pub fn parse_gfa_fastq(
         writeln!(output_cc, "Component {}: {:?}", i + 1, component)?;
     }
     debug!("connected components are written to {:?}", output_cc);
-    Ok(())
+    Ok(enriched_scaffolds)
 }

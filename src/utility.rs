@@ -1,5 +1,6 @@
 use csv::ReaderBuilder;
 use bio::io::fasta;
+use serde::de;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{self, File, rename};
@@ -151,7 +152,7 @@ pub fn splitbysampleid(
         }
         write_line_to_file(&current_sample_id, &line, &mut writers)?;
     }
-
+    debug!("Finished writing sample-wise bins for {:?}", bin);
     Ok(())
 }
 
@@ -262,7 +263,7 @@ pub fn parse_bins_quality(
             error!("Skipping invalid record: {:?}", record);
             continue; // Skip records that do not have enough columns
         }
-        let sample_id = record[0].to_string();
+        let sample_id: String = record[0].to_string();
         let completeness: f64 = record[1].parse().unwrap_or(0.0);
         let contamination: f64 = record[2].parse().unwrap_or(0.0);
         debug!("checkm2 {:?} sample_id {:?} completeness {:?} contamination {:?}", checkm2_qualities, sample_id, completeness, contamination);
@@ -287,16 +288,16 @@ pub fn parse_bins_quality(
 
 pub fn combine_fastabins(
     inputdir: &Path,
-    bin_names: &HashSet<String>,
+    bin_samplenames: &HashSet<String>,
     combined_bins: &Path,
 ) -> io::Result<()> {
     // Combine bins fasta into a single file
     let mut output_writer = File::create(
         combined_bins
         .join(format!("combined.fasta")))?;
-    for bin_name in bin_names {
-        let bin_file_path = inputdir.join(format!("{}.fasta", bin_name));
-
+    for bin_samplename in bin_samplenames {
+        let bin_file_path = inputdir.join(format!("{}.fasta", bin_samplename));
+        debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path,combined_bins);
         if bin_file_path.exists() {
             let bin_file = File::open(&bin_file_path)?;
             let reader = fasta::Reader::new(bin_file);
@@ -307,7 +308,7 @@ pub fn combine_fastabins(
                 writeln!(output_writer, "{}", String::from_utf8_lossy(record.seq()))?;
             }
         } else {
-            error!("Warning: File for bin '{}' does not exist at {:?}", bin_name, bin_file_path);
+            error!("Warning: File for bin '{}' does not exist at {:?}", bin_samplename, bin_file_path);
         }
     }
     Ok(())
@@ -413,14 +414,14 @@ pub fn get_connected_samples(
 }
 
 pub fn select_highcompletebin(
-    comp: &HashSet<String>,
+    bin_samplenames: &HashSet<String>,
     bin_qualities: &HashMap<String, BinQuality>,
     binspecificdir: &PathBuf,
     outputpath: &PathBuf,
     _i: Option<String>,
     bin_name: &str,
 ) -> io::Result<()> {
-    let highest_completebin = comp
+    let highest_completebin = bin_samplenames
         .iter()
         .filter_map(|bin
         | bin_qualities.get(bin)
@@ -434,7 +435,7 @@ pub fn select_highcompletebin(
     
     if let Some(sample_id) = highest_completebin {
         let bin_path = binspecificdir.join(format!("{}.fasta", sample_id));
-        debug!("{:?} highest bin complete", bin_path);
+        debug!("{:?} bin with the highest completeness", bin_path);
         if _i.is_none() {
             let sid = Some(sample_id.to_string());
             rename(bin_path,
@@ -526,4 +527,25 @@ pub fn remove_files_matching_pattern(
         }
     }
     Ok(())
+}
+
+pub fn get_output_filename(input_file: &str) -> PathBuf {
+    let path = Path::new(input_file);
+    
+    let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    
+    let filename = path.file_stem()
+        .map(|stem| stem.to_str().unwrap_or("default"))
+        .unwrap_or("default");
+    output_dir.join(format!("{}_connected_scaffolds", filename))
+}
+
+pub fn get_output_scaffoldname(bin_fasta: &str) -> PathBuf {
+    let path = Path::new(bin_fasta);
+    
+    let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let filename = path.file_stem()
+        .map(|stem| stem.to_str().unwrap_or("default"))
+        .unwrap_or("default");
+    output_dir.join(format!("{}_enriched.fasta", filename))
 }
