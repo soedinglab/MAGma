@@ -1,6 +1,5 @@
 use clap::{Arg, Command};
-use readfetch::readfetch;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, rename};
 use std::io;
 use std::path::PathBuf;
