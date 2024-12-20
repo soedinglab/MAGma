@@ -1,6 +1,5 @@
 use csv::ReaderBuilder;
 use bio::io::fasta;
-use serde::de;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{self, File, rename};
