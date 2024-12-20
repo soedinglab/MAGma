@@ -201,6 +201,28 @@ pub fn write_line_to_file(
     Ok(())
 }
 
+pub fn check_samplematch(
+    sample_list: &[String],
+    connected_samples: &[HashSet<String>],
+) -> Result<(), String> {
+    for (index, connected_set) in connected_samples.iter().enumerate() {
+        let matched = connected_set
+            .iter()
+            .any(|connected_sample|
+            sample_list.contains(connected_sample));
+
+        if !matched {
+            // Raise an error if no sample from sample_list is found in this connected_set
+            return Err(format!(
+                "No sample from sample_list found in connected_samples at index {}.",
+                index
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 pub fn assess_bins(
     bindir: &PathBuf,
     bincheckm2: &PathBuf,

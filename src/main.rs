@@ -156,13 +156,14 @@ fn main() -> io::Result<()> {
     fs::create_dir(&resultpath)?;
     
     binfiles
-        .par_iter()
-        .filter(|bin| { // Optional pre-filtering step
-            // Example filter: skip bins with invalid file names
-            bin.file_name().is_some()
-        })
-        .try_for_each(|bin
-        | process_bin(bin.clone(), 
+    .par_iter()
+    .filter(|bin| {
+        // Optional pre-filtering step
+        bin.file_name().is_some()
+    })
+    .try_for_each(|bin| {
+        process_bin(
+            bin.clone(),
             &bindir,
             &assemblydir,
             &gfadir,
@@ -174,7 +175,17 @@ fn main() -> io::Result<()> {
             min_overlaplen,
             format,
             is_paired,
-        ))?;
+        )
+        .map_err(|e| {
+            eprintln!(
+                "Error processing bin {:?}: {}",
+                bin.file_name().unwrap_or_default(),
+                e
+            );
+            e
+        })
+    })?;
+    
 
     Ok(())
     
@@ -255,7 +266,13 @@ fn process_bin(bin: PathBuf,
     utility::combine_fastabins(
         &binspecificdir, 
         &bin_samplenames,
-        &binspecificdir)?;
+        &binspecificdir).map_err(|e| {
+            eprintln!(
+                "Error in assess_bins for bin {}: {}",
+                bin_name, e
+            );
+            e
+        })?;
 
     // eg: cluster_output= <bindir>/bin_1/linclust
     let cluster_output = binspecificdir.join("linclust");
@@ -281,13 +298,23 @@ fn process_bin(bin: PathBuf,
             &resultpath,
             None,
             bin_name,
-        );
+        ).map_err(|e| {
+            eprintln!(
+                "Error in assess_bins for bin {}: {}",
+                bin_name, e
+            );
+            e
+        })?;
         let _ = fs::remove_dir_all(binspecificdir);
         return Ok(());
     }
     debug!("At least two samples share overlapping region(s) {}", bin_name);
     let connected_samples = utility::get_connected_samples(&graph);
     
+    if let Err(e) = utility::check_samplematch(&sample_list, &connected_samples) {
+        eprintln!("Validation failed: {}", e);
+    }
+
     // eg: <bindir>/bin_1/mergedbins/
     let mergedbinpath: PathBuf = binspecificdir
         .join("mergedbins");
@@ -318,22 +345,41 @@ fn process_bin(bin: PathBuf,
         utility::combine_fastabins(
             &binspecificdir,
             comp,
-            &selected_binset_path)?;
+            &selected_binset_path).map_err(|e| {
+                eprintln!(
+                    "Error in assess_bins for bin {}: {}",
+                    bin_name, e
+                );
+                e
+            })?;
 
         // eg. checkm2_subsetpath = <bindir>/bin_1/mergedbins/0_checkm2_results/
         let checkm2_subsetpath: PathBuf = 
             mergedbinpath.join(format!("{}_checkm2_results", i.to_string()));
-        let checkm2_qualities = 
+        let checkm2_subsetqualities = 
             utility::assess_bins(&selected_binset_path, 
-            &checkm2_subsetpath, threads, format)?;
+            &checkm2_subsetpath, threads, "fasta").map_err(|e| {
+                eprintln!(
+                    "Error in assess_bins for bin {}: {}",
+                    bin_name, e
+                );
+                e
+            })?;
         let mergebin_qualities = utility::parse_bins_quality(
             &selected_binset_path,
             &checkm2_subsetpath,
-            &checkm2_qualities,
+            &checkm2_subsetqualities,
             bin_name,
             false,
-        )?;
+        ).map_err(|e| {
+            eprintln!(
+                "Error in assess_bins for bin {}: {}",
+                bin_name, e
+            );
+            e
+        })?;
 
+        debug!("Merged bin qualities {:?} for {}", mergebin_qualities.keys(), bin_name);
         // Check quality of combined bin and process only if it is high purity.
         // Otherwise choose the best bin
         if let Some(bin_quality) = mergebin_qualities.get("combined") {
@@ -347,6 +393,7 @@ fn process_bin(bin: PathBuf,
                 mergedbinpath.join(format!("{}_combined.{}",i.to_string(), format)));
             } else {
                 // combined bin has high contamination. Choose the best
+                // TODO: if unmerged bin is higher complete than merged one, choose that.
                 let _ = utility::select_highcompletebin(
                     comp,
                     &bin_qualities,
@@ -435,8 +482,7 @@ fn process_bin(bin: PathBuf,
                 read_file2,
                 binspecificdir
                 .join(
-                format!("{}.{}",
-                sample, format)),
+                format!("{}.fasta",sample)),
                 is_paired,
                 create_new
             );
@@ -475,21 +521,21 @@ fn process_bin(bin: PathBuf,
             Err(_) => todo!(),
         }
         // clean folders
-        let _ = fs::remove_dir_all(reassembly_outputdir);
-        let pattern = &format!("{}_combined*", i.to_string());
-        let _ = utility::remove_files_matching_pattern(
-            &mergedbinpath,
-            pattern);
+        // let _ = fs::remove_dir_all(reassembly_outputdir);
+        // let pattern = &format!("{}_combined*", i.to_string());
+        // let _ = utility::remove_files_matching_pattern(
+        //     &mergedbinpath,
+        //     pattern);
     }
     // clean folders
-    let pattern = &format!("*.{}", format);
-    let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
-    let pattern = &format!("*.fastq");
-    let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
-    let pattern = &format!("*_scaffolds*");
-    let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
-    let _ = fs::remove_dir_all(checkm2_outputpath);
-    let _ = fs::remove_dir_all(binspecificdir);
+    // let pattern = &format!("*.{}", format);
+    // let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
+    // let pattern = &format!("*.fastq");
+    // let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
+    // let pattern = &format!("*_scaffolds*");
+    // let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);
+    // let _ = fs::remove_dir_all(checkm2_outputpath);
+    // let _ = fs::remove_dir_all(binspecificdir);
 
     Ok(())
 }

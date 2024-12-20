@@ -34,7 +34,7 @@ impl GfaGraph {
     fn add_overlap(&mut self, seg1: String, seg2: String) {
         let seg1 = seg1.trim_end_matches(&['+', '-']).to_string();
         let seg2 = seg2.trim_end_matches(&['+', '-']).to_string();
-
+        debug!("seg1 {} and seg2 {}", seg1, seg2);
         if let (Some(scaf1), Some(scaf2)) = (
             self.segment_to_scaffold.get(&seg1),
             self.segment_to_scaffold.get(&seg2),
@@ -83,9 +83,14 @@ fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
 {
-    let open = File::open(filename);
-    let file = open?;
-    Ok(io::BufReader::new(file).lines())
+    let open = File::open(&filename).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to open file {:?}: {}", filename.as_ref(), e),
+        )
+    })?;
+    
+    Ok(io::BufReader::new(open).lines())
 }
 
 fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
@@ -94,7 +99,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
     let mut path_lines = Vec::new();
     let mut link_lines = Vec::new();
 
-    if let Ok(lines) = read_lines(file_path) {
+    if let Err(e) = read_lines(file_path).and_then(|lines| {
         for line in lines {
             if let Ok(record) = line {
                 if record.starts_with('P') {
@@ -104,6 +109,9 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
                 }
             }
         }
+        Ok(())
+    }) {
+        eprintln!("Failed to process file {}: {}", file_path, e);
     }
 
     // Process Path lines first
@@ -123,6 +131,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, seg1, _, seg2, _, _] = &fields[..] {
             graph.add_overlap(seg1.to_string(), seg2.to_string());
+            debug!("overlapping segment seg1 {} seg2 {} ", seg1.to_string(), seg2.to_string());
         }
     }
     Ok(graph)
@@ -137,6 +146,7 @@ fn write_combined_fasta(
     create_new: bool,
 ) -> io::Result<HashSet<String>> {
     let assembly_content = read_to_string(assembly_fasta)?;
+    debug!("read assembly content");
     let output_file = if create_new {
         File::create(&output_fasta)?
     } else {
@@ -157,6 +167,7 @@ fn write_combined_fasta(
 
     for line in assembly_content.lines() {
         if line.starts_with(">") {
+            debug!("assembly file header {}", line);
             if !current_scaffold.is_empty() 
             && enriched_scaffolds.contains(&current_scaffold)
             && current_sequence.len() >=300 {
@@ -213,7 +224,7 @@ pub fn parse_gfa_fastq(
 
     // eg: bin_scaffolds = {S1Ck141_1, S2Ck141_2 ... S2Ck141_N}
     let bin_scaffolds = read_fasta(bin_fasta)?;
-    debug!("bin scaffold length is {:?}", bin_scaffolds.len());
+    debug!("bin scaffold {:?}", bin_scaffolds);
 
     // Find connected components of scaffolds
     // eg: components = Vec<{k141_1, k141_4}, {k141_6, k141_12, k141_564},...>
@@ -222,12 +233,16 @@ pub fn parse_gfa_fastq(
     let mut connected_scaffolds = HashSet::new();
     for component in &components {
         for scaffold in component {
+            debug!("scaffold {}", scaffold);
             if bin_scaffolds.contains(scaffold) {
                 connected_scaffolds.extend(component.iter().cloned());
                 break;
             }
         }
     }
+
+    debug!("obtained connected components and assembly fasta is {:?}", assembly_fasta);
+    debug!("output fasta {:?}", utility::get_output_scaffoldname(outputbin.to_str().expect("")));
     // eg: output_fasta = <bindir>/bin_1/S1_enriched.fasta
     let enriched_scaffolds = 
         write_combined_fasta(

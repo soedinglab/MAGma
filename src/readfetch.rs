@@ -8,17 +8,30 @@ use log::debug;
 
 fn read_mapid_file(mapid_file: &str) -> io::Result<HashMap<String, String>> {
     let mut read_to_scaffold = HashMap::new();
-    let file = File::open(mapid_file)?;
+    let file = File::open(mapid_file).map_err(|e| {
+        io::Error::new(io::ErrorKind::NotFound,
+            format!("Failed to open file '{}': {}", mapid_file, e))
+    })?;
+
     let reader = io::BufReader::new(file);
 
     for line in reader.lines() {
-        let line = line?;
+        let line = line.map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData,
+            format!("Failed to read line in '{}': {}", mapid_file, e))
+        })?;
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() == 2 {
             let read_id = parts[0].split('.')
                 .next().unwrap_or("").to_string();
             let scaffold_id = parts[1].to_string();
             read_to_scaffold.insert(read_id, scaffold_id);
+        } else {
+            // Return error if the line doesn't contain exactly two parts
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData, format!(
+                "Invalid line format in '{}': {}", mapid_file, line
+            )));
         }
     }
     Ok(read_to_scaffold)
@@ -39,7 +52,10 @@ fn write_selected_reads(
         .filter(|(_, scaffold)| enriched_scaffolds.contains(*scaffold))
         .map(|(read, _)| read.clone())
         .collect();
-    let file = File::open(fastq_file)?;
+    let file = File::open(fastq_file).map_err(|e| {
+        io::Error::new(io::ErrorKind::NotFound,
+            format!("Failed to open file '{}': {}", fastq_file, e))
+    })?;
     let reader: Box<dyn BufRead> = if fastq_file.ends_with(".gz") {
         Box::new(BufReader::new(GzDecoder::new(file)))
     } else {
@@ -167,7 +183,7 @@ pub fn fetch_fastqreads(
         .to_str()
         .expect("Invalid UTF-8 in file path")
         .replace(".fasta", ".fastq")));
-    debug!("Writing reads for {:?}", outputbin);
+    debug!("Writing reads for {:?}", output_fastq);
     let _ = write_selected_reads(
         &read_fastq,
         read_fastq2,
