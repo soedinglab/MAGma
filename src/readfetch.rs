@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use flate2::read::GzDecoder;
@@ -167,7 +167,7 @@ pub fn fetch_fastqreads(
         .to_str()
         .expect("Invalid UTF-8 in file path")
         .replace(".fasta", ".fastq")));
-
+    debug!("Writing reads for {:?}", outputbin);
     let _ = write_selected_reads(
         &read_fastq,
         read_fastq2,

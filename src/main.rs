@@ -392,7 +392,7 @@ fn process_bin(bin: PathBuf,
                 format!("{}.fasta",
                 sample)),
                 create_new
-            );
+            )?;
             for scaffold in enriched_scaffolds {
                 // Check if the scaffold already contains the sample ID separated by 'C'.
                 if !scaffold.contains(&format!("{}C", sample)) {
@@ -401,12 +401,12 @@ fn process_bin(bin: PathBuf,
                     all_enriched_scaffolds.insert(modified_scaffold);
                 } else {
                     // If already present, keep the original scaffold.
-                    all_enriched_scaffolds.insert(scaffold);
+                    all_enriched_scaffolds.insert(scaffold.clone());
                 }
             }
         }
         
-        let create_new = true;
+        create_new = true;
         for sample in sample_list {
 
             let mapid_path = mapdir.join(format!("{}_mapids", sample));
