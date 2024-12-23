@@ -4,6 +4,7 @@ use std::fs::{self, rename};
 use std::io;
 use std::path::PathBuf;
 use rayon::prelude::*;
+use rayon::{current_num_threads, ThreadPoolBuilder};
 use log::{debug, info};
 
 mod utility;
@@ -95,8 +96,8 @@ fn main() -> io::Result<()> {
     .expect("Format is required");
 
     let bindir = utility::validate_path(
-        matches.
-        get_one::<PathBuf>("bindir"), "bindir", &format);
+        matches
+        .get_one::<PathBuf>("bindir"), "bindir", &format);
     let gfadir = utility::validate_path(
         matches
         .get_one::<PathBuf>("gfadir"), "gfadir", ".gfa");
@@ -139,7 +140,8 @@ fn main() -> io::Result<()> {
     if binfiles.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "No bin files found. Please provide the correct format argument.",
+            "No bin files found. \
+            Please provide the correct format argument.",
         ));
     }
     
@@ -155,38 +157,47 @@ fn main() -> io::Result<()> {
     }
     fs::create_dir(&resultpath)?;
     
-    binfiles
-    .par_iter()
-    .filter(|bin| {
-        // Optional pre-filtering step
-        bin.file_name().is_some()
-    })
-    .try_for_each(|bin| {
-        process_bin(
-            bin.clone(),
-            &bindir,
-            &assemblydir,
-            &gfadir,
-            &mapdir,
-            &readdir,
-            &resultpath,
-            &sample_list,
-            threads,
-            min_overlaplen,
-            format,
-            is_paired,
-        )
-        .map_err(|e| {
-            eprintln!(
-                "Error processing bin {:?}: {}",
-                bin.file_name().unwrap_or_default(),
-                e
-            );
-            e
-        })
-    })?;
-    
+    info!("{} cores are used", current_num_threads());
 
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .expect("Failed to build thread pool");
+
+    pool.install(|| {
+        binfiles
+        .par_iter()
+        .filter(|bin| {
+            // Optional pre-filtering step
+            bin.file_name().is_some()
+        })
+        .try_for_each(|bin| {
+            process_bin(
+                bin.clone(),
+                &bindir,
+                &assemblydir,
+                &gfadir,
+                &mapdir,
+                &readdir,
+                &resultpath,
+                &sample_list,
+                threads,
+                min_overlaplen,
+                format,
+                is_paired,
+            )
+            .map_err(|e| {
+                eprintln!(
+                    "Error processing bin {:?}: {}",
+                    bin.file_name().unwrap_or_default(),
+                    e
+                );
+                e
+            })
+        })
+        .expect("Error during processing");
+    });
+        
     Ok(())
     
 }
@@ -228,6 +239,7 @@ fn process_bin(bin: PathBuf,
         &checkm2_outputpath,
         threads,
         "fasta")?;
+
     let bin_qualities = utility::parse_bins_quality(
         &binspecificdir,
         &resultpath,
@@ -385,12 +397,13 @@ fn process_bin(bin: PathBuf,
         if let Some(bin_quality) = mergebin_qualities.get("combined") {
             
             // combined bin has low contamination, it will be processed further
+            // TODO: If combined bin completeness is lower than unmerged bins, decision should be taken
             if bin_quality.contamination < 5f64 {
                 // eg: from <bindir>/bin_1/mergedbins/0_combined/combined.fasta
                 // to <bindir>/bin_1/mergedbins/0_combined.fasta
                 let _ = rename(selected_binset_path
                     .join(format!("combined.{}",format)), 
-                mergedbinpath.join(format!("{}_combined.{}",i.to_string(), format)));
+                mergedbinpath.join(format!("{}_combined.fasta",i.to_string())));
             } else {
                 // combined bin has high contamination. Choose the best
                 // TODO: if unmerged bin is higher complete than merged one, choose that.
@@ -411,9 +424,7 @@ fn process_bin(bin: PathBuf,
         
         let mut create_new = true;
         let mut all_enriched_scaffolds = HashSet::new();
-        // TODO: As of now, it collects information from only source samples of bins.
-        // All samples would be better option and needs to be tested.
-        // for sample in sample_list {
+
         for sample in comp {
             debug!("going to read gfa processing");
             // eg: <gfadir>/S1.gfa
@@ -433,12 +444,12 @@ fn process_bin(bin: PathBuf,
                 gfa_file,
                 subbin_file,
                 assembly_file,
-                binspecificdir
-                .join(
-                format!("{}.fasta",
-                sample)),
+                mergedbinpath
+                .join(format!("{}_combined.fasta"
+                ,i.to_string())),
                 create_new
             )?;
+            create_new = false;
             for scaffold in enriched_scaffolds {
                 // Check if the scaffold already contains the sample ID separated by 'C'.
                 if !scaffold.contains(&format!("{}C", sample)) {
@@ -469,7 +480,6 @@ fn process_bin(bin: PathBuf,
                 read_file2 = read_path2.as_ref().map(|path| utility::path_to_str(path));
             } else {
                 read_path1 = utility::find_file_with_extension(&readdir, &sample);
-                // read_path2 = None;
             
                 read_file = utility::path_to_str(&read_path1);
                 read_file2 = None;
@@ -480,9 +490,10 @@ fn process_bin(bin: PathBuf,
                 mapid_file,
                 read_file,
                 read_file2,
-                binspecificdir
+                mergedbinpath
                 .join(
-                format!("{}.fasta",sample)),
+                format!("{}_combined.fasta"
+                ,i.to_string())),
                 is_paired,
                 create_new
             );
@@ -491,8 +502,8 @@ fn process_bin(bin: PathBuf,
             
         let reassembly_outputdir = mergedbinpath.join(format!("{}_assembly",i.to_string()));
         let status = utility::run_reassembly(
-            &[mergedbinpath.join(format!("{}_combined_enriched.fastq",i.to_string()))],
-        &mergedbinpath.join(format!("{}_combined_enriched.{}",i.to_string(), format)),
+        &[mergedbinpath.join(format!("{}_combined_enriched.fastq",i.to_string()))],
+        &mergedbinpath.join(format!("{}_combined_enriched.fasta",i.to_string())),
         &reassembly_outputdir,
         true,
         threads,

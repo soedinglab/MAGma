@@ -550,7 +550,7 @@ pub fn remove_files_matching_pattern(
     Ok(())
 }
 
-pub fn get_output_filename(input_file: &str) -> PathBuf {
+pub fn get_outputname_connected(input_file: &str) -> PathBuf {
     let path = Path::new(input_file);
     
     let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -561,7 +561,7 @@ pub fn get_output_filename(input_file: &str) -> PathBuf {
     output_dir.join(format!("{}_connected_scaffolds", filename))
 }
 
-pub fn get_output_scaffoldname(bin_fasta: &str) -> PathBuf {
+pub fn get_output_binname(bin_fasta: &str) -> PathBuf {
     let path = Path::new(bin_fasta);
     
     let output_dir = path.parent().unwrap_or_else(|| Path::new("."));

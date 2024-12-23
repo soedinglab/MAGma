@@ -222,7 +222,7 @@ pub fn parse_gfa_fastq(
     let graph = parse_gfa(gfa_file)?;
     debug!("obtained graph for {:?}", gfa_file);
 
-    // eg: bin_scaffolds = {S1Ck141_1, S2Ck141_2 ... S2Ck141_N}
+    // eg: bin_scaffolds = {k141_1, k141_2, ..., k141_N}
     let bin_scaffolds = read_fasta(bin_fasta)?;
     debug!("bin scaffold {:?}", bin_scaffolds);
 
@@ -242,30 +242,30 @@ pub fn parse_gfa_fastq(
     }
 
     debug!("obtained connected components and assembly fasta is {:?}", assembly_fasta);
-    debug!("output fasta {:?}", utility::get_output_scaffoldname(outputbin.to_str().expect("")));
+    debug!("output fasta {:?}", utility::get_output_binname(outputbin.to_str().expect("")));
     // eg: output_fasta = <bindir>/bin_1/S1_enriched.fasta
     let enriched_scaffolds = 
         write_combined_fasta(
             &bin_scaffolds,
             &connected_scaffolds, 
             assembly_fasta,
-            utility::get_output_scaffoldname(outputbin.to_str().expect("")),
+            utility::get_output_binname(outputbin.to_str().expect("")),
             create_new
         )?;
 
     // eg: output_fasta = <bindir>/bin_1_connected_components
-    let binding = utility::get_output_filename(outputbin.to_str().expect(""));
+    let binding = utility::get_outputname_connected(outputbin.to_str().expect(""));
     let output_file = binding
         .to_str()
         .expect("Failed to convert PathBuf to &str");
 
     let mut output_cc = if create_new {
-        File::create(&utility::get_output_filename(output_file))? // Create a new file if flag is true
+        File::create(&utility::get_outputname_connected(output_file))? // Create a new file if flag is true
     } else {
         OpenOptions::new()
             .create(true)
             .append(true)  // Open in append mode if flag is false
-            .open(&utility::get_output_filename(output_file))?
+            .open(&utility::get_outputname_connected(output_file))?
     };
 
     writeln!(output_cc, "Connected components:")?;

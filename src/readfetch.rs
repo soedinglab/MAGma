@@ -72,26 +72,9 @@ fn write_selected_reads(
 
     let mut output_file = io::BufWriter::new(output_file);
 
-    // let mut lines = reader.lines();
-    // while let Some(header) = lines.next() {
-    //     let sequence = lines.next().unwrap_or(Ok(String::new()))?;
-    //     let plus_line = lines.next().unwrap_or(Ok(String::new()))?;
-    //     let quality = lines.next().unwrap_or(Ok(String::new()))?;
-    //     let read_id = header?.to_string();
-    //     let read_id_trimmed = read_id
-    //         .trim_start_matches('@')
-    //         .trim_end_matches("/1")
-    //         .trim_end_matches("/2")
-    //         .to_string();
-    //     if selected_reads.contains(&read_id_trimmed) {
-    //         writeln!(output_file, "{}", read_id)?;
-    //         writeln!(output_file, "{}", sequence)?;
-    //         writeln!(output_file, "{}", plus_line)?;
-    //         writeln!(output_file, "{}", quality)?;
-    //     }
-    // }
     if is_paired {
-        // Handle paired-end reads
+        // Handle paired-end reads from separate files
+        // This code assumes that both read files are of same size and have the same set of reads in the same order
         let file2 = File::open(fastq_file2.expect("Paired-end flag set but no second file provided"))?;
         let reader2: Box<dyn BufRead> = if fastq_file2.unwrap().ends_with(".gz") {
             Box::new(BufReader::new(GzDecoder::new(file2)))
@@ -139,6 +122,7 @@ fn write_selected_reads(
             }
         }
     } else {
+        // interleaved or single-end reads
         let mut lines = reader.lines();
         while let Some(header) = lines.next() {
             let header = header?;
@@ -179,7 +163,7 @@ pub fn fetch_fastqreads(
     create_new: bool,
 ) {
     let output_fastq = PathBuf::from(format!("{}",
-        utility::get_output_scaffoldname(outputbin.to_str().expect(""))
+        utility::get_output_binname(outputbin.to_str().expect(""))
         .to_str()
         .expect("Invalid UTF-8 in file path")
         .replace(".fasta", ".fastq")));
