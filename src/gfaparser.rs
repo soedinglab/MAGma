@@ -177,6 +177,7 @@ fn write_combined_fasta(
             current_scaffold = line.trim_start_matches(">").to_string();
             if let Some(pos) = line.find('C') {
                 current_scaffold = line[pos + 1..].to_string();
+            }
             current_sequence.clear();
         } else {
             current_sequence.push_str(line);
