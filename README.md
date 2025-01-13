@@ -7,7 +7,7 @@ Build index of fastq read files
 
     Options:
     -r, --readdir <READDIR>  Directory containing read files
-    -o, --outdir <OUTDIR>    Directory to output index file reads.db, prefer to set as the bin directory
+    -o, --outdir <OUTDIR>    Directory to output index file reads.db, prefer to be set as the bin directory
     -t, --threads <THREADS>  Number of threads to use, set to number lower than the number of fastq files [default: 8]
     -h, --help               Print help
 
