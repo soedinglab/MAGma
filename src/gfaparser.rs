@@ -34,7 +34,6 @@ impl GfaGraph {
     fn add_overlap(&mut self, seg1: String, seg2: String) {
         let seg1 = seg1.trim_end_matches(&['+', '-']).to_string();
         let seg2 = seg2.trim_end_matches(&['+', '-']).to_string();
-        debug!("seg1 {} and seg2 {}", seg1, seg2);
         if let (Some(scaf1), Some(scaf2)) = (
             self.segment_to_scaffold.get(&seg1),
             self.segment_to_scaffold.get(&seg2),
@@ -103,7 +102,19 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         for line in lines {
             if let Ok(record) = line {
                 if record.starts_with('P') {
-                    path_lines.push(record);
+                    // Ignore long path for short contig, due to repeat-region or uncertain assembly structure
+                    let fields: Vec<&str> = record.split('\t').collect();
+                    let scaffold = fields.get(1).unwrap_or(&"");
+                    let scaffold_length = scaffold.split("_length_")
+                        .nth(1)
+                        .and_then(|s| s.split('_').next())
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or(0);
+
+                    // Filter condition: path length should not be significantly larger than scaffold length
+                    if scaffold_length >= 1000 {
+                        path_lines.push(record);
+                    }
                 } else if record.starts_with('L') {
                     link_lines.push(record);
                 }
@@ -131,7 +142,6 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, seg1, _, seg2, _, _] = &fields[..] {
             graph.add_overlap(seg1.to_string(), seg2.to_string());
-            debug!("overlapping segment seg1 {} seg2 {} ", seg1.to_string(), seg2.to_string());
         }
     }
     Ok(graph)
@@ -145,8 +155,10 @@ fn write_combined_fasta(
     output_fasta: PathBuf,
     create_new: bool,
 ) -> io::Result<HashSet<String>> {
+
+    debug!("Entering write combined_fasta");
     let assembly_content = read_to_string(assembly_fasta)?;
-    debug!("read assembly content");
+
     let output_file = if create_new {
         File::create(&output_fasta)?
     } else {
@@ -159,35 +171,50 @@ fn write_combined_fasta(
     let mut output_file = io::BufWriter::new(output_file);
 
     let mut enriched_scaffolds = bin_scaffolds.clone();
-
+    debug!("Enriched scaffolds len:{}", enriched_scaffolds.len());
+    debug!("Enriched scaffolds {:?}", enriched_scaffolds);
     enriched_scaffolds.extend(connected_scaffolds.iter().cloned());
+
+    if enriched_scaffolds.contains("NODE_22708_length_1772_cov_3.746069") {
+        debug!("NODE_22708_length_1772_cov_3.746069 exists in the HashSet");
+    } else {
+        debug!("NODE_22708_length_1772_cov_3.746069 does not exist in the HashSet");
+    }
 
     let mut current_scaffold = String::new();
     let mut current_sequence = String::new();
+    let mut is_first_scaffold = true;
 
     for line in assembly_content.lines() {
         if line.starts_with(">") {
-            debug!("assembly file header {}", line);
-            if !current_scaffold.is_empty() 
-            && enriched_scaffolds.contains(&current_scaffold)
-            && current_sequence.len() >=300 {
-                writeln!(output_file, ">{}", current_scaffold)?;
-                writeln!(output_file, "{}", current_sequence)?;
+            if !is_first_scaffold {
+                if enriched_scaffolds.contains(&current_scaffold)
+                    && current_sequence.len() >= 300 {
+                    debug!("current sequence: {} {}",
+                        current_scaffold, current_sequence.len());
+                    writeln!(output_file, ">{}", current_scaffold)?;
+                    writeln!(output_file, "{}", current_sequence)?;
+                }
+            } else {
+                is_first_scaffold = false;
             }
-            current_scaffold = line.trim_start_matches(">").to_string();
+    
             if let Some(pos) = line.find('C') {
                 current_scaffold = line[pos + 1..].to_string();
+            } else {
+                current_scaffold = line.trim_start_matches(">").to_string();
             }
+    
             current_sequence.clear();
         } else {
-            current_sequence.push_str(line);
+            current_sequence.push_str(line.trim());
         }
     }
-
-    // Last line scaffold
-    if !current_scaffold.is_empty() 
-        && enriched_scaffolds.contains(&current_scaffold)
-        && current_sequence.len() >=300 {
+    
+    if enriched_scaffolds.contains(&current_scaffold)
+        && current_sequence.len() >= 300 {
+        debug!("current sequence: {} {}",
+            current_scaffold, current_sequence.len());
         writeln!(output_file, ">{}", current_scaffold)?;
         writeln!(output_file, "{}", current_sequence)?;
     }
@@ -236,7 +263,6 @@ pub fn parse_gfa_fastq(
     let mut connected_scaffolds = HashSet::new();
     for component in &components {
         for scaffold in component {
-            debug!("scaffold {}", scaffold);
             if bin_scaffolds.contains(scaffold) {
                 connected_scaffolds.extend(component.iter().cloned());
                 break;

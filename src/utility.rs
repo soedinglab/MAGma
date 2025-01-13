@@ -52,7 +52,8 @@ pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str)
 }
 
 pub fn path_to_str(path: &PathBuf) -> &str {
-    path.to_str().expect("Failed to convert PathBuf to &str")
+    path.to_str()
+    .expect("Failed to convert PathBuf to &str")
 }
 
 pub fn check_paired_reads(directory: &PathBuf) -> bool {
@@ -492,7 +493,7 @@ pub fn run_reassembly(
         output.arg("--trusted-contigs")
         .arg(binfile)
         .arg("--only-assembler")
-        .arg("--careful")
+        // .arg("--careful")
         .arg("-o")
         .arg(outputdir)
         .arg("-t")
@@ -569,4 +570,59 @@ pub fn get_output_binname(bin_fasta: &str) -> PathBuf {
         .map(|stem| stem.to_str().unwrap_or("default"))
         .unwrap_or("default");
     output_dir.join(format!("{}_enriched.fasta", filename))
+}
+
+
+pub fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
+
+    let output_file = match Path::new(input_file)
+        .extension() {
+        Some(ext) => {
+            let stem = Path::new(input_file)
+                .file_stem()
+                .unwrap_or_default();
+            let parent = Path::new(input_file)
+                .parent()
+                .unwrap_or_else(||
+                Path::new(""));
+            parent.join(
+        format!("{}_filtered.{}",
+            stem.to_string_lossy(),
+            ext.to_string_lossy()))
+        }
+        None => Path::new(input_file)
+            .with_file_name(
+            format!("{}_filtered",
+            input_file.display())),
+    };
+    let input = File::open(input_file)?;
+    let mut output = File::create(&output_file)?;
+    let reader = BufReader::new(input);
+
+    let mut current_header = String::new();
+    let mut current_sequence = String::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('>') {
+            // Process the previous sequence, if any.
+            if !current_header.is_empty() && current_sequence.len() >= 500 {
+                writeln!(output, "{}", current_header)?;
+                writeln!(output, "{}", current_sequence)?;
+            }
+            current_header = line;
+            current_sequence.clear();
+        } else {
+            current_sequence.push_str(&line.trim());
+        }
+    }
+
+    if !current_header.is_empty() && current_sequence.len() >= 500 {
+        writeln!(output, "{}", current_header)?;
+        writeln!(output, "{}", current_sequence)?;
+    }
+
+    println!("Filtered sequences saved to: {}", output_file.to_string_lossy());
+
+    Ok(())
 }
