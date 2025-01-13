@@ -24,8 +24,10 @@ enum Commands {
         #[arg(short = 'r', long = "readdir", help = "Directory containing read files")]
         readdir: PathBuf,
         /// Output directory for the database
-        #[arg(short = 'o', long = "outdir", help = "Directory to output index file reads.db, Preferred to be the bin directory")]
+        #[arg(short = 'o', long = "outdir", help = "Directory to output index file reads.db, prefer to set as the bin directory")]
         outdir: PathBuf,
+        #[arg(short = 't', long = "threads", default_value_t = 8, help = "Number of threads to use, set to number lower than the number of fastq files")]
+        threads: usize,
     },
     /// Merge bins across samples
     Merge {
@@ -67,9 +69,9 @@ fn main() {
     env_logger::init();
     let cli = Cli::parse(); // Parses the command-line arguments into the `Cli` struct.
     match cli.command { // Matches the chosen subcommand.
-        Commands::Index { readdir, outdir } => {
+        Commands::Index { readdir, outdir, threads } => {
             println!("Running index command...");
-            if let Err(e) = indexfastqreads(&readdir, &outdir) {
+            if let Err(e) = indexfastqreads(&readdir, &outdir, threads) {
                 eprintln!("Error in indexing: {}", e);
             }
         }

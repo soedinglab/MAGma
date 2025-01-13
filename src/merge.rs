@@ -6,8 +6,8 @@ use rayon::prelude::*;
 use rayon::{current_num_threads, ThreadPoolBuilder};
 use log::{debug, info};
 
-use crate::{index, utility, gfaparser, readfetch};
-use index::indexfastqreads;
+use crate::{utility, gfaparser, readfetch};
+// use index::indexfastqreads;
 use readfetch::fetch_fastqreads;
 use gfaparser::parse_gfa_fastq;
 
@@ -80,14 +80,14 @@ pub fn merge(
     
     info!("{} cores are used", current_num_threads());
 
-    let fastq_pool = ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .expect("Failed to build FASTQ thread pool");
+    // let fastq_pool = ThreadPoolBuilder::new()
+    //     .num_threads(4)
+    //     .build()
+    //     .expect("Failed to build FASTQ thread pool");
 
-    fastq_pool.install(|| {
-        let _ = indexfastqreads(readdir, bindir); // Adjust arguments as needed
-    });
+    // fastq_pool.install(|| {
+    //     let _ = indexfastqreads(readdir, bindir); // Adjust arguments as needed
+    // });
 
     let pool = ThreadPoolBuilder::new()
         .num_threads(threads)

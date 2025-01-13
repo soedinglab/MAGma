@@ -1,14 +1,14 @@
 # mergebins
 
-Usage:
-
+Build index of fastq read files
     Index FASTQ files
 
-    Usage: mergebins index --readdir <READDIR> --outdir <OUTDIR>
+    Usage: mergebins index [OPTIONS] --readdir <READDIR> --outdir <OUTDIR>
 
     Options:
     -r, --readdir <READDIR>  Directory containing read files
-    -o, --outdir <OUTDIR>    Directory to output index file reads.db, Preferred to be the bin directory
+    -o, --outdir <OUTDIR>    Directory to output index file reads.db, prefer to set as the bin directory
+    -t, --threads <THREADS>  Number of threads to use, set to number lower than the number of fastq files [default: 8]
     -h, --help               Print help
 
 Run merge bins

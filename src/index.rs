@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use log::{debug, info};
 use std::fs::{self, File};
 use flate2::bufread::GzDecoder;
-use rayon::prelude::*;
-
+use rayon::{prelude::*, ThreadPoolBuilder};
+use std::time::Instant;
 
 fn open_fastq_file(fastq_file: &Path) -> Result<BufReader<Box<dyn Read>>, std::io::Error> {
     if fastq_file.extension().map(|ext| ext == "gz").unwrap_or(false) {
@@ -25,11 +25,10 @@ fn to_io_error(e: rusqlite::Error) -> io::Error {
     io::Error::new(io::ErrorKind::Other, e.to_string())
 }
 
-pub fn indexfastqreads(readdir: &PathBuf, outputpath: &PathBuf) -> io::Result<()> {
-    
+pub fn indexfastqreads(readdir: &PathBuf, outputpath: &PathBuf, threads: usize) -> io::Result<()> {
+    let start_time = Instant::now();
     let db_path = outputpath.join("reads.db");
 
-    
     debug!("db_path {:?}", db_path);
     
     if db_path.exists() {
@@ -174,46 +173,17 @@ pub fn indexfastqreads(readdir: &PathBuf, outputpath: &PathBuf) -> io::Result<()
             transaction.commit().unwrap();
             debug!("Transaction is completed");
         });
+      
+        ThreadPoolBuilder::new()
+            .num_threads(fastq_files.len().min(threads))
+            .build_global()
+            .expect("Failed to create a thread pool");
 
         fastq_files.par_iter().for_each(|fastq_file| {
             if let Err(err) = process_fastq_file(fastq_file, &tx) {
                 eprintln!("Error processing file {:?}: {}", fastq_file, err);
             }
         });
-
-        // // Spawn worker threads to process FASTQ files
-        // fastq_files.par_iter().for_each(|fastq_file| {
-        //     // let file = File::open(fastq_file).unwrap();
-        //     // let mut decoder = GzDecoder::new(BufReader::new(file));
-        //     // let mut decompress_file = Vec::new();
-        //     // decoder.read_to_end(&mut decompress_file).unwrap();
-        //     // let fastq_reader = BufReader::new(decompress_file.as_slice());
-        //     let result: Result<(), std::io::Error> = (|| {
-        //         let fastq_reader = open_fastq_file(fastq_file)?;
-
-        //         let mut lines = fastq_reader.lines();
-        //         while let (Some(Ok(header1)), Some(Ok(seq1)), Some(Ok(_)), Some(Ok(qual1))) = (
-        //             lines.next(),
-        //             lines.next(),
-        //             lines.next(),
-        //             lines.next(),
-        //         ) {
-        //             tx.send((
-        //                 fastq_file.to_string_lossy().to_string(),
-        //                 header1.trim_start_matches('@').to_string(),
-        //                 seq1,
-        //                 qual1,
-        //             ))
-        //             .unwrap();
-        //         }
-        //         Ok(())
-        //     })();
-            
-        //     // Handle the result of the closure (e.g., log error or handle it)
-        //     if let Err(err) = result {
-        //         eprintln!("Error processing file {:?}: {}", fastq_file, err);
-        //     }
-        // });
         
         drop(tx); // Close the sender channel.
         writer_handle.join().expect("Writer thread panicked");
@@ -223,7 +193,8 @@ pub fn indexfastqreads(readdir: &PathBuf, outputpath: &PathBuf) -> io::Result<()
             .map_err(to_io_error)?;
         debug!("Rows in fastq table: {}", count);
     }
-
+    let duration = start_time.elapsed();
+    info!("Time taken for the function: {:?}", duration);
     Ok(())
 }
 
@@ -253,3 +224,37 @@ fn process_fastq_file(
     Ok(())
 }
 
+
+// // Spawn worker threads to process FASTQ files
+// fastq_files.par_iter().for_each(|fastq_file| {
+//     // let file = File::open(fastq_file).unwrap();
+//     // let mut decoder = GzDecoder::new(BufReader::new(file));
+//     // let mut decompress_file = Vec::new();
+//     // decoder.read_to_end(&mut decompress_file).unwrap();
+//     // let fastq_reader = BufReader::new(decompress_file.as_slice());
+//     let result: Result<(), std::io::Error> = (|| {
+//         let fastq_reader = open_fastq_file(fastq_file)?;
+
+//         let mut lines = fastq_reader.lines();
+//         while let (Some(Ok(header1)), Some(Ok(seq1)), Some(Ok(_)), Some(Ok(qual1))) = (
+//             lines.next(),
+//             lines.next(),
+//             lines.next(),
+//             lines.next(),
+//         ) {
+//             tx.send((
+//                 fastq_file.to_string_lossy().to_string(),
+//                 header1.trim_start_matches('@').to_string(),
+//                 seq1,
+//                 qual1,
+//             ))
+//             .unwrap();
+//         }
+//         Ok(())
+//     })();
+    
+//     // Handle the result of the closure (e.g., log error or handle it)
+//     if let Err(err) = result {
+//         eprintln!("Error processing file {:?}: {}", fastq_file, err);
+//     }
+// });
