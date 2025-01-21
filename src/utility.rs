@@ -271,7 +271,15 @@ pub fn parse_bins_quality(
     movebin_flag: bool,
 ) -> io::Result<HashMap<String, BinQuality>> {
 
-
+    let _ = File::open(checkm2_qualities).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!(
+                "Failed to open checkm2 quality file for bin {}: {:?}",
+                bin_name, e
+            ),
+        )
+    })?;
     // read checkm2 output file
     let mut rdr = ReaderBuilder::new()
         .has_headers(true)
@@ -460,11 +468,13 @@ pub fn select_highcompletebin(
         debug!("{:?} bin with the highest completeness", bin_path);
         if _i.is_none() {
             let sid = Some(sample_id.to_string());
+            debug!("output path {:?} sample id {:?}", outputpath, sid);
             rename(bin_path,
                 outputpath
                 .join(
                 format!("{}_{}_final.fasta",bin_name,sid.unwrap())))?;
         } else {
+            debug!("output path {:?}", outputpath);
             rename(bin_path,
                 outputpath
                 .join(
@@ -480,7 +490,7 @@ pub fn run_reassembly(
     readfile: &[PathBuf],
     binfile: &PathBuf,
     outputdir: &PathBuf,
-    interleaved: bool,
+    is_paired: bool,
     threads: usize,
 ) -> io::Result<bool> {
     
@@ -501,7 +511,7 @@ pub fn run_reassembly(
         .arg("-m")
         .arg(128.to_string())
         .stdout(Stdio::null());
-    if interleaved {
+    if is_paired {
         output.arg("--12").arg(&readfile[0]);
     } else {
         output.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);

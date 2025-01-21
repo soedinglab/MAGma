@@ -112,7 +112,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
                         .unwrap_or(0);
 
                     // Filter condition: path length should not be significantly larger than scaffold length
-                    if scaffold_length >= 1000 {
+                    if scaffold_length >= 500 {
                         path_lines.push(record);
                     }
                 } else if record.starts_with('L') {
@@ -149,6 +149,7 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
 
 
 fn write_combined_fasta(
+    sample: &String,
     bin_scaffolds: &HashSet<String>,
     connected_scaffolds: &HashSet<String>,
     assembly_fasta: &str,
@@ -172,14 +173,8 @@ fn write_combined_fasta(
 
     let mut enriched_scaffolds = bin_scaffolds.clone();
     debug!("Enriched scaffolds len:{}", enriched_scaffolds.len());
-    debug!("Enriched scaffolds {:?}", enriched_scaffolds);
-    enriched_scaffolds.extend(connected_scaffolds.iter().cloned());
 
-    if enriched_scaffolds.contains("NODE_22708_length_1772_cov_3.746069") {
-        debug!("NODE_22708_length_1772_cov_3.746069 exists in the HashSet");
-    } else {
-        debug!("NODE_22708_length_1772_cov_3.746069 does not exist in the HashSet");
-    }
+    enriched_scaffolds.extend(connected_scaffolds.iter().cloned());
 
     let mut current_scaffold = String::new();
     let mut current_sequence = String::new();
@@ -190,9 +185,7 @@ fn write_combined_fasta(
             if !is_first_scaffold {
                 if enriched_scaffolds.contains(&current_scaffold)
                     && current_sequence.len() >= 300 {
-                    debug!("current sequence: {} {}",
-                        current_scaffold, current_sequence.len());
-                    writeln!(output_file, ">{}", current_scaffold)?;
+                    writeln!(output_file, ">{}C{}", sample, current_scaffold)?;
                     writeln!(output_file, "{}", current_sequence)?;
                 }
             } else {
@@ -213,9 +206,7 @@ fn write_combined_fasta(
     
     if enriched_scaffolds.contains(&current_scaffold)
         && current_sequence.len() >= 300 {
-        debug!("current sequence: {} {}",
-            current_scaffold, current_sequence.len());
-        writeln!(output_file, ">{}", current_scaffold)?;
+        writeln!(output_file, ">{}C{}", sample, current_scaffold)?;
         writeln!(output_file, "{}", current_sequence)?;
     }
 
@@ -242,6 +233,7 @@ fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
 
 // TODO: get enriched scaffolds from the source samples but reads obtain from all samples
 pub fn parse_gfa_fastq(
+    sample: &String,
     gfa_file: &str,
     bin_fasta: &str,
     assembly_fasta: &str,
@@ -275,6 +267,7 @@ pub fn parse_gfa_fastq(
     // eg: output_fasta = <bindir>/bin_1/S1_enriched.fasta
     let enriched_scaffolds = 
         write_combined_fasta(
+            sample,
             &bin_scaffolds,
             &connected_scaffolds, 
             assembly_fasta,
