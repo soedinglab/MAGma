@@ -111,6 +111,7 @@ pub fn merge(
         })
         .try_for_each(|bin| {
             let absolute_bin = bin.canonicalize()?;
+            info!("Processing bin: {:?}", absolute_bin);
             process_bin(
                 absolute_bin.clone(),
                 &bindir,
@@ -135,7 +136,7 @@ pub fn merge(
         })
         .expect("Error during processing");
     });
-        
+    info!("Bin merging was successfully completed!");  
     Ok(())
     
 }
@@ -190,6 +191,7 @@ fn process_bin(bin: PathBuf,
                 "Failed to parse quality for bin {}. Skipping bin.",
                 bin_name
             );
+            let _ = fs::remove_dir_all(binspecificdir);
             return Ok(()); // Skip further processing for this bin
         }
     };
@@ -324,20 +326,33 @@ fn process_bin(bin: PathBuf,
                 );
                 e
             })?;
-        let mergebin_qualities = utility::parse_bins_quality(
+        let mergebin_qualities = match utility::parse_bins_quality(
             &selected_binset_path,
             &checkm2_subsetpath,
             &checkm2_subsetqualities,
             bin_name,
             false,
-        ).map_err(|e| {
-            eprintln!(
-                "Error in assess_bins for bin {}: {}",
-                bin_name, e
-            );
-            e
-        })?;
+        ) {
+            Ok(quality) => quality,
+            Err(_) => {
+                eprintln!(
+                    "Failed to parse quality for mergedbin {:?}. Skipping bin.",
+                    &selected_binset_path
+                );
+                let _ = fs::remove_dir_all(&selected_binset_path);
+                let _ = fs::remove_dir_all(&checkm2_subsetpath);
+                continue;
+            }
+        };
 
+        // Merged bin is not pure
+        if mergebin_qualities.len() == 0 {
+            debug!("{:?} doesn't have high pure bins", &selected_binset_path);
+            let _ = fs::remove_dir_all(&selected_binset_path);
+            let _ = fs::remove_dir_all(&checkm2_subsetpath);
+            continue;
+        }        
+        
         // Check quality of combined bin and process only if it is high purity.
         // Otherwise choose the best bin
         if let Some(bin_quality) = mergebin_qualities.get("combined") {
@@ -364,9 +379,16 @@ fn process_bin(bin: PathBuf,
                 Some(i.to_string()),
                 bin_name,
             );
-            return Ok(());
+            let _ = fs::remove_dir_all(&selected_binset_path);
+            let _ = fs::remove_dir_all(&checkm2_subsetpath);
+            continue;
         }
         
+        if !mergedbinpath.join(format!("{}_combined.fasta",i.to_string())).exists() {
+            info!("For bin {}, no merged bin passes quality criteria to proceed to assembly", bin_name);
+            return Ok(());
+        }
+
         let mut create_new = true;
         let mut all_enriched_scaffolds = HashSet::new();
         for sample in comp {
