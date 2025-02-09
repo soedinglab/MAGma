@@ -1,4 +1,3 @@
-use std::arch::x86_64::_CMP_NEQ_US;
 use std::collections::HashSet;
 use std::process::{Command, Stdio};
 // use clap::error;
@@ -7,7 +6,7 @@ use hashbrown::HashMap;
 use std::path::PathBuf;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
-use rusqlite::Result;
+// use rusqlite::Result;
 // use std::io::{self, BufRead, BufReader, Write, Read};
 // use rusqlite::{params, Connection, Result};
 use crate::utility;

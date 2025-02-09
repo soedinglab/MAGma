@@ -1,6 +1,6 @@
 [package]
 name="mergebins"
-version="1.0.0"
+version="0.1.0"
 authors=["Yazhini <yazhini@mpinat.mpg.de>", "Johannes Soeding <soeding@mpinat.mpg.de>"]
 edition = "2021"
 
@@ -20,7 +20,6 @@ env_logger = "0.10"
 hashbrown = "0.15"
 memmap2 = "0.9"
 seq_io = "0.3"
-rusqlite = "0.32"
 
 [profile.dev]
 debug = 2
