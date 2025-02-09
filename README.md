@@ -1,20 +1,8 @@
 # mergebins
 
-Build index of fastq read files
-    Index FASTQ files
+Merge bins across samples
 
-    Usage: mergebins index [OPTIONS] --readdir <READDIR> --outdir <OUTDIR>
-
-    Options:
-    -r, --readdir <READDIR>  Directory containing read files
-    -o, --outdir <OUTDIR>    Directory to output index file reads.db, prefer to be set as the bin directory
-    -t, --threads <THREADS>  Number of threads to use, set to number lower than the number of fastq files [default: 8]
-    -h, --help               Print help
-
-Run merge bins
-    Merge bins across samples
-
-    Usage: mergebins merge [OPTIONS] --bindir <BINDIR> --gfadir <GFADIR> --assemblydir <ASSEMBLYDIR> --mapdir <MAPDIR> --readdir <READDIR>
+    Usage: mergebins [OPTIONS] --bindir <BINDIR> --gfadir <GFADIR> --assemblydir <ASSEMBLYDIR> --mapdir <MAPDIR> --readdir <READDIR>
 
     Options:
     -b, --bindir <BINDIR>                  Directory containing fasta files of bins
@@ -27,4 +15,3 @@ Run merge bins
     -l, --min_overlaplen <MIN_OVERLAPLEN>  Minimum overlap length [default: 1000]
     -h, --help                             Print help
 
-Note: sqlite3 should be installed
