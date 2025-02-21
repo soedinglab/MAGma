@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::{self, rename};
-use std::io;
+use std::io::{self, stderr, Write};
 use std::path::PathBuf;
 use clap::Parser;
 use rayon::prelude::*;
@@ -153,6 +153,7 @@ fn main() -> io::Result<()> {
         .try_for_each(|bin| {
             let absolute_bin = bin.canonicalize()?;
             info!("Processing bin: {:?}", absolute_bin);
+            stderr().flush().ok();
             process_bin(
                 absolute_bin.clone(),
                 &bindir,
@@ -245,6 +246,7 @@ fn process_bin(bin: PathBuf,
     }        
         
     // Find connected samples
+    // bin_samplenames = <S1, S2, ...>
     let bin_samplenames: HashSet<String> = bin_qualities.keys().cloned().collect();
     debug!("{} bin_samplenames {:?}", bin_name, bin_samplenames);
 
@@ -288,17 +290,15 @@ fn process_bin(bin: PathBuf,
         threads)?;
     debug!("Graph was constructed for {}", bin_name);
     // if no overlapping bins identified, 
-    // only select the best bin by completeness.
+    // select the best bins by completeness >=90%.
     // Already bins were filtered by purity.
     if graph.node_count() == 0 {
         debug!("No overlapping bins have identified for {:?}. \
-        Choosing the best bin by completeness", bin_name);
-        let _ = utility::select_highcompletebin(
-            &bin_samplenames,
+        Choosing the best bins by completeness and purity", bin_name);
+        let _ = utility::save_selectedbins(
             &bin_qualities,
             &binspecificdir,
             &resultpath,
-            None,
             bin_name,
         ).map_err(|e| {
             eprintln!(
@@ -307,7 +307,7 @@ fn process_bin(bin: PathBuf,
             );
             e
         })?;
-        let _ = fs::remove_dir_all(binspecificdir);
+        // let _ = fs::remove_dir_all(binspecificdir);
         return Ok(());
     }
     debug!("At least two samples share overlapping region(s) {}", bin_name);
@@ -326,13 +326,21 @@ fn process_bin(bin: PathBuf,
     fs::create_dir(&mergedbinpath)?;
 
     debug!("Connected components {:?} for {}", connected_samples, bin_name);
+
     // eg: comp = {"S1", "S2"}
     for (i, comp) in connected_samples.iter().enumerate() {
 
         if comp.len() == 1 {
             debug!("Single component. Process it further {:?}", comp);
-            // TODO:
-            return Ok(());
+            
+            let _ = utility::process_high_quality_bins(
+                comp,
+                &bin_qualities,
+                &binspecificdir,
+                resultpath,
+                bin_name,
+            );
+            continue;
         }
 
         // check quality of the components if merged
@@ -367,6 +375,7 @@ fn process_bin(bin: PathBuf,
                 );
                 e
             })?;
+
         let mergebin_qualities = match utility::parse_bins_quality(
             &selected_binset_path,
             &checkm2_subsetpath,
@@ -380,8 +389,14 @@ fn process_bin(bin: PathBuf,
                     "Failed to parse quality for mergedbin {:?}. Skipping bin.",
                     &selected_binset_path
                 );
-                let _ = fs::remove_dir_all(&selected_binset_path);
-                let _ = fs::remove_dir_all(&checkm2_subsetpath);
+                
+                let _ = utility::process_high_quality_bins(
+                    comp,
+                    &bin_qualities,
+                    &binspecificdir,
+                    resultpath,
+                    bin_name,
+                );
                 continue;
             }
         };
@@ -389,8 +404,13 @@ fn process_bin(bin: PathBuf,
         // Merged bin is not pure
         if mergebin_qualities.len() == 0 {
             debug!("{:?} doesn't have high pure bins", &selected_binset_path);
-            let _ = fs::remove_dir_all(&selected_binset_path);
-            let _ = fs::remove_dir_all(&checkm2_subsetpath);
+            let _ = utility::process_high_quality_bins(
+                comp,
+                &bin_qualities,
+                &binspecificdir,
+                resultpath,
+                bin_name,
+            );
             continue;
         }        
         
@@ -411,17 +431,13 @@ fn process_bin(bin: PathBuf,
         } else {
             debug!("Combined bin has high contamination");
             // combined bin has high contamination. Choose the best
-            // TODO: if any unmerged bin is higher complete than merged one, choose that.
-            let _ = utility::select_highcompletebin(
+            let _ = utility::process_high_quality_bins(
                 comp,
                 &bin_qualities,
                 &binspecificdir,
-                &resultpath,
-                Some(i.to_string()),
+                resultpath,
                 bin_name,
             );
-            let _ = fs::remove_dir_all(&selected_binset_path);
-            let _ = fs::remove_dir_all(&checkm2_subsetpath);
             continue;
         }
         
@@ -473,44 +489,6 @@ fn process_bin(bin: PathBuf,
         
         debug!("Fetched contigs from assembly file");
         create_new = true;
-        // for sample in sample_list {
-        // for sample in comp {
-
-        //     debug!("processing sample file {} to get reads", sample);
-        //     let mapid_path = mapdir.join(format!("{}_mapids", sample));
-        //     let mapid_file = utility::path_to_str(&mapid_path);
-            
-        //     let (read_path1, read_path2): (PathBuf, Option<PathBuf>);
-        //     let (read_file, read_file2): (&str, Option<&str>);
-            
-        //     if is_paired {
-        //         read_path1 = utility::find_file_with_extension(&readdir, &format!("{}_1", sample));
-        //         read_path2 = Some(utility::find_file_with_extension(&readdir, &format!("{}_2", sample)));
-            
-        //         read_file = utility::path_to_str(&read_path1);
-        //         read_file2 = read_path2.as_ref().map(|path| utility::path_to_str(path));
-        //     } else {
-        //         read_path1 = utility::find_file_with_extension(&readdir, &sample);
-            
-        //         read_file = utility::path_to_str(&read_path1);
-        //         read_file2 = None;
-        //     }
-            
-        //     debug!("map id {} read file1 {:?} read file2 {:?}", mapid_file, read_file, read_file2);
-        //     let _ = fetch_fastqreads(
-        //         &all_enriched_scaffolds,
-        //         mapid_file,
-        //         read_file,
-        //         read_file2,
-        //         mergedbinpath
-        //         .join(
-        //         format!("{}_combined.fasta"
-        //         ,i.to_string())),
-        //         is_paired,
-        //         create_new
-        //     );
-        //     create_new = false;
-        // }
         debug!("all enriched scaffolds: {} {:?}", all_enriched_scaffolds.len(), all_enriched_scaffolds);
         for sample in comp {
 
@@ -568,24 +546,15 @@ fn process_bin(bin: PathBuf,
             }
             Ok(false) => {
                 // select highest completeness bin
-                // let _ = select_highcompletebin(
-                //     comp,
-                //     &bin_qualities,
-                //     &binspecificdir,
-                //     &mergedbinpath,
-                //     Some(i.to_string()),
-                //     bin_name);
-                //     println!("Selected the best bin among samples based on completeness");
-                
-                // output the combined bin
-                // let _ = rename(mergedbinpath.join(format!("{}_combined.fasta",i.to_string())), 
-                // resultpath.join(format!("{}_final.fasta",i.to_string())));
-                if let Err(e) = rename(
-                    mergedbinpath.join(format!("{}_combined.fasta", i.to_string())),
-                    resultpath.join(format!("{}_{}_final.fasta", bin_name, i.to_string())),
-                ) {
-                    log::error!("Failed to rename file: {:?}", e);
-                }
+                let _ = utility::process_high_quality_bins(
+                    comp,
+                    &bin_qualities,
+                    &binspecificdir,
+                    &resultpath,
+                    bin_name,
+                );
+                // fs::remove_dir_all(selected_binset_path)?;
+                // fs::remove_dir_all(checkm2_subsetpath)?;
             }
             Err(_) => todo!(),
         }
@@ -596,6 +565,7 @@ fn process_bin(bin: PathBuf,
         //     &mergedbinpath,
         //     pattern);
     }
+
     // clean folders
     // let pattern = &format!("*.{}", format);
     // let _ = utility::remove_files_matching_pattern(&binspecificdir, pattern);

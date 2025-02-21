@@ -11,6 +11,7 @@ use std::process::{Command as ProcessCommand, Stdio, exit};
 use log::{debug, info, error};
 use glob::glob;
 
+#[derive(Clone)]
 pub struct BinQuality {
     pub completeness: f64,
     pub contamination: f64,
@@ -327,7 +328,7 @@ pub fn combine_fastabins(
         .join(format!("combined.fasta")))?;
     for bin_samplename in bin_samplenames {
         let bin_file_path = inputdir.join(format!("{}.fasta", bin_samplename));
-        debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path,combined_bins);
+        debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path, combined_bins);
         if bin_file_path.exists() {
             let bin_file = File::open(&bin_file_path)?;
             let reader = fasta::Reader::new(bin_file);
@@ -397,25 +398,24 @@ pub fn find_overlappingbins(
                 .split("C").next()
                 .unwrap_or("").to_string();
 
+            let node1 = *bin_name_to_node
+                .entry(bin1.clone())
+                .or_insert_with(|| graph.add_node(bin1.clone()));
+            let node2 = *bin_name_to_node
+                .entry(bin2.clone())
+                .or_insert_with(|| graph.add_node(bin2.clone()));
             if bin1 != bin2 {
-                let node1 = *bin_name_to_node
-                    .entry(bin1.clone())
-                    .or_insert_with(|| graph.add_node(bin1.clone()));
-                let node2 = *bin_name_to_node
-                    .entry(bin2.clone())
-                    .or_insert_with(|| graph.add_node(bin2.clone()));
-
                 graph.add_edge(node1, node2, ());
             }
         }
     }
-    let files_to_remove = vec![
-        cluster_output.display().to_string() + "_all_seqs.fasta",
-        cluster_output.display().to_string() + "_rep_seq.fasta",
-        cluster_output.display().to_string() + "_cluster.tsv"];
-    for file_name in files_to_remove {
-        let _ = fs::remove_file(file_name);
-    }
+    // let files_to_remove = vec![
+    //     cluster_output.display().to_string() + "_all_seqs.fasta",
+    //     cluster_output.display().to_string() + "_rep_seq.fasta",
+    //     cluster_output.display().to_string() + "_cluster.tsv"];
+    // for file_name in files_to_remove {
+    //     let _ = fs::remove_file(file_name);
+    // }
    Ok(graph)
 }
 
@@ -443,48 +443,125 @@ pub fn get_connected_samples(
     connected_samples
 }
 
-pub fn select_highcompletebin(
-    bin_samplenames: &HashSet<String>,
+// pub fn select_highcompletebin(
+//     bin_samplenames: &HashSet<String>,
+//     bin_qualities: &HashMap<String, BinQuality>,
+//     binspecificdir: &PathBuf,
+//     outputpath: &PathBuf,
+//     sid: String,
+//     bin_name: &str,
+// ) -> io::Result<()> {
+//     let highest_completebin = bin_samplenames
+//         .iter()
+//         .filter_map(|bin
+//         | bin_qualities.get(bin)
+//         .map(|quality
+//         | (bin, quality.completeness)))
+//         .max_by(|(_, completeness1),(_, completeness2)
+//         | completeness1
+//         .partial_cmp(completeness2)
+//         .unwrap_or(std::cmp::Ordering::Equal))
+//         .map(|(bin, _)| bin.clone());
+    
+//     if let Some(sample_id) = highest_completebin {
+//         let bin_path = binspecificdir.join(format!("{}.fasta", sample_id));
+//         debug!("output path {:?} sample id {:?}", outputpath, sid);
+//         rename(bin_path,
+//             outputpath
+//             .join(
+//             format!("{}_{}_final.fasta",bin_name,sid)))?;
+//     } else {
+//         error!("No bin found with highest completeness for {:?}", bin_name);
+//     }
+//     Ok(())
+// }
+
+
+pub fn process_high_quality_bins(
+    comp: &HashSet<String>,
+    bin_qualities: &HashMap<String, BinQuality>,
+    binspecificdir: &PathBuf,
+    resultpath: &PathBuf,
+    bin_name: &str,
+) -> io::Result<()> {
+    let comp_binqualities: HashMap<String, BinQuality> = bin_qualities
+        .iter()
+        .filter(|(bin, _)| comp.contains(*bin))
+        .map(|(bin, quality)| (bin.to_string(), quality.clone()))
+        .collect();
+
+    // select_highcompletebin(
+    //     comp,
+    //     &comp_binqualities,
+    //     binspecificdir,
+    //     resultpath,
+    //     sid,
+    //     bin_name,
+    // )
+    // .map_err(|e| {
+    //     eprintln!("Error in assess_bins for bin {}: {}", bin_name, e);
+    //     e
+    // })?;
+
+    let _  = save_selectedbins(
+        &comp_binqualities,
+        binspecificdir,
+        resultpath,
+        bin_name
+    );
+    Ok(())
+}
+
+pub fn save_selectedbins(
     bin_qualities: &HashMap<String, BinQuality>,
     binspecificdir: &PathBuf,
     outputpath: &PathBuf,
-    _i: Option<String>,
     bin_name: &str,
 ) -> io::Result<()> {
-    let highest_completebin = bin_samplenames
-        .iter()
-        .filter_map(|bin
-        | bin_qualities.get(bin)
-        .map(|quality
-        | (bin, quality.completeness)))
-        .max_by(|(_, completeness1),(_, completeness2)
-        | completeness1
-        .partial_cmp(completeness2)
-        .unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(bin, _)| bin.clone());
-    
-    if let Some(sample_id) = highest_completebin {
-        let bin_path = binspecificdir.join(format!("{}.fasta", sample_id));
-        debug!("{:?} bin with the highest completeness", bin_path);
-        if _i.is_none() {
-            let sid = Some(sample_id.to_string());
-            debug!("output path {:?} sample id {:?}", outputpath, sid);
-            rename(bin_path,
-                outputpath
-                .join(
-                format!("{}_{}_final.fasta",bin_name,sid.unwrap())))?;
-        } else {
-            debug!("output path {:?}", outputpath);
-            rename(bin_path,
-                outputpath
-                .join(
-                format!("{}_{}_final.fasta",bin_name, _i.unwrap())))?;
+   
+    let mut selected_bins: Vec<&String> = Vec::new();
+
+    let thresholds = [
+        (90.0, 5.0),  // First attempt: completeness > 90%, contamination < 5%
+        (70.0, 10.0), // Second attempt: completeness > 70%, contamination < 10%
+        // (50.0, 10.0), // Third attempt: completeness > 50%, contamination < 10%
+    ];
+
+    for &(completeness_thresh, contamination_thresh) in &thresholds {
+        selected_bins = bin_qualities
+            .iter()
+            .filter(|(_, quality)| quality.completeness >= completeness_thresh 
+                && quality.contamination < contamination_thresh)
+            .map(|(bin, _)| bin)
+            .collect();
+        debug!("selected bins {:?} for {}", selected_bins, bin_name);
+        if !selected_bins.is_empty() {
+            break;
         }
-    } else {
-        debug!("No bin found with highest completeness for {:?}", bin_name);
+
+        debug!(
+            "No bins met the criteria (completeness > {}, contamination < {}) for {}",
+            completeness_thresh, contamination_thresh, bin_name
+        );
+    }
+
+    if selected_bins.is_empty() {
+        debug!("No bins met the quality criteria for {}", bin_name);
+        return Ok(()); // Exit early if no bins match
+    }
+
+    for bin in selected_bins {
+        let bin_path = binspecificdir.join(format!("{}.fasta", bin));
+        let final_filename = format!("{}_{}.fasta", bin_name, bin);
+        let final_path = outputpath.join(final_filename);
+
+        if let Err(e) = rename(&bin_path, &final_path) {
+            debug!("Failed to save bin {}: {:?}", bin, e);
+        }
     }
     Ok(())
 }
+
 
 pub fn run_reassembly(
     readfile: &[PathBuf],
