@@ -264,7 +264,7 @@ pub fn parse_gfa_fastq(
 
     debug!("obtained connected components and assembly fasta is {:?}", assembly_fasta);
     debug!("output fasta {:?}", utility::get_output_binname(outputbin.to_str().expect("")));
-    // eg: output_fasta = <bindir>/bin_1/S1_enriched.fasta
+    // eg: output_fasta = <bindir>/0_combined/S1_enriched.fasta
     let enriched_scaffolds = 
         write_combined_fasta(
             sample,

@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use petgraph::graph::Graph;
 use petgraph::visit::Dfs;
 use petgraph::Undirected;
-use std::process::{Command as ProcessCommand, Stdio, exit};
+use std::process::{exit, Command as ProcessCommand, ExitStatus, Stdio};
 use log::{debug, info, error};
 use glob::glob;
 
@@ -133,6 +133,7 @@ pub fn get_gfa_file_names(dir: &Path) -> Vec<String> {
 
 pub fn splitbysampleid(
     bin: &PathBuf,
+    bin_name: &str,
     binspecificdir: &PathBuf,
 ) -> io::Result<()>{
 
@@ -149,7 +150,7 @@ pub fn splitbysampleid(
         let line = line?;
         if line.starts_with('>') {
             current_sample_id = extract_sample_id(&line)?;
-            ensure_writer(&current_sample_id, binspecificdir, &mut writers)?;
+            ensure_writer(&current_sample_id, bin_name, binspecificdir, &mut writers)?;
         }
         write_line_to_file(&current_sample_id, &line, &mut writers)?;
     }
@@ -169,9 +170,9 @@ pub fn extract_sample_id(line: &str) -> io::Result<String> {
     }
 }
 
-
 pub fn ensure_writer(
     sample_id: &str,
+    bin_name: &str,
     binspecificdir: &Path,
     writers: &mut HashMap<String, File>,
 ) -> io::Result<()> {
@@ -179,8 +180,8 @@ pub fn ensure_writer(
         let output_filename = 
             binspecificdir
             .join(
-            format!("{}.fasta"
-            ,sample_id));
+            format!("{}_{}.fasta"
+            ,bin_name,sample_id));
         let output_file =
             File::create(output_filename)?;
         writers.insert(
@@ -200,28 +201,6 @@ pub fn write_line_to_file(
         writers.get_mut(sample_id) {
             writeln!(writer, "{}", line)?;
     }
-    Ok(())
-}
-
-pub fn check_samplematch(
-    sample_list: &[String],
-    connected_samples: &[HashSet<String>],
-) -> Result<(), String> {
-    for (index, connected_set) in connected_samples.iter().enumerate() {
-        let matched = connected_set
-            .iter()
-            .any(|connected_sample|
-            sample_list.contains(connected_sample));
-
-        if !matched {
-            // Raise an error if no sample from sample_list is found in this connected_set
-            return Err(format!(
-                "No sample from sample_list found in connected_samples at index {}.",
-                index
-            ));
-        }
-    }
-
     Ok(())
 }
 
@@ -265,19 +244,15 @@ pub fn assess_bins(
 }
 
 pub fn parse_bins_quality(
-    inputdir: &PathBuf,
-    movebinpath: &PathBuf,
     checkm2_qualities: &PathBuf,
-    bin_name: &str,
-    movebin_flag: bool,
 ) -> io::Result<HashMap<String, BinQuality>> {
 
     let _ = File::open(checkm2_qualities).map_err(|e| {
         io::Error::new(
             e.kind(),
             format!(
-                "Failed to open checkm2 quality file for bin {}: {:?}",
-                bin_name, e
+                "Failed to open checkm2 quality file for bin: {:?}",
+                e
             ),
         )
     })?;
@@ -294,25 +269,11 @@ pub fn parse_bins_quality(
             error!("Skipping invalid record: {:?}", record);
             continue; // Skip records that do not have enough columns
         }
-        let sample_id: String = record[0].to_string();
+        let bin_id: String = record[0].to_string();
         let completeness: f64 = record[1].parse().unwrap_or(0.0);
         let contamination: f64 = record[2].parse().unwrap_or(0.0);
-        debug!("checkm2 {:?} sample_id {:?} completeness {:?} contamination {:?}", checkm2_qualities, sample_id, completeness, contamination);
-        // Filter bins by contamination
-        if contamination < 5.0f64 {
-            if completeness > 95f64 && movebin_flag {
-                let bin_file_path = inputdir.join(format!("{}.fasta", sample_id));
-                let destination_path = movebinpath.join(format!("{}_{}.fasta", bin_name, sample_id));
-                debug!("bin_file path: {:?} \n destination_path: {:?}", bin_file_path, destination_path);
-                fs::copy(&bin_file_path, &destination_path)?;
-                debug!("Copied existing high quality (96% comp, <5% cont) bin '{}' to '{}'", 
-                    bin_name, movebinpath.display());
-            } else {
-                debug!("inserting {} with completeness {} and contamination {}", bin_name, completeness, contamination);
-                bin_qualities.insert(sample_id, 
-                BinQuality{ completeness, contamination });
-            }
-        }
+        bin_qualities.insert(bin_id, 
+        BinQuality{ completeness, contamination });
     }
     Ok(bin_qualities)
 }
@@ -345,77 +306,62 @@ pub fn combine_fastabins(
     Ok(())
 }
 
-pub fn find_overlappingbins(
+pub fn calc_ani(
     bins: &PathBuf,
-    cluster_output: PathBuf,
-    min_overlaplen: usize,
-    threads: usize,
+    bin_qualities: &HashMap<String, BinQuality>,
+    format: String,
 ) -> io::Result<Graph<String, (), Undirected>> {
-    let tmpdir = cluster_output
-        .parent()
-        .unwrap_or_else(
-            || Path::new("/")
-        ).join("tmp");
-    let output = ProcessCommand::new("mmseqs")
-        .arg("easy-linclust")
-        .arg(bins)
-        .arg(cluster_output.clone())
-        .arg(tmpdir)
-        .arg("--min-seq-id")
-        .arg("1.0")
-        .arg("--min-aln-len")
-        .arg(min_overlaplen.to_string())
-        .arg("--kmer-per-seq-scale")
-        .arg("0.3")
-        .arg("--threads")
-        .arg(threads.to_string())
+    let ani_output: PathBuf = Path::new(bins).join("ani_edges");
+    let ani_input: String = format!("{}/*.{}", bins.display(), format);
+    let output: ExitStatus = ProcessCommand::new("skani")
+        .arg("triangle")
+        .arg(ani_input)
+        .arg("-E >")
+        .arg(ani_output.clone())
         .stdout(Stdio::null())
         // .stderr(Stdio::null())
         .status()?; // Execute the command and get the status
 
     if !output.success() {
-        error!("Error: mmseqs easy-linclust failed");
+        error!("Error: skani triangle failed");
         exit(1); // Exit if the command fails
     }
+    
+    let mut graph: Graph<String, (), Undirected> = Graph::<String, (), Undirected>::default();
+    let mut bin_name_to_node: HashMap<String, petgraph::prelude::NodeIndex> = HashMap::new();
+    let file: File = File::open(ani_output)?;
+    let reader: BufReader<File> = io::BufReader::new(file);
 
-    let mut graph = Graph::<String, (), Undirected>::default();
-    let mut bin_name_to_node = HashMap::new();
-    let file = File::open(cluster_output.display().to_string() + "_cluster.tsv")?;
-    let reader = io::BufReader::new(file);
-
-    for line in reader.lines() {
-        let line = line?;
+    for line in reader.lines().skip(1) {
+        let line: String = line?;
         let columns: Vec<&str> = line.split('\t').collect();
 
         // Assuming the bin names are in the first two columns (contig1, contig2)
-        if columns.len() >= 2 {
-            let bin1 = columns[0]
-                .to_string()
-                .split("C").next()
-                .unwrap_or("").to_string();
-            let bin2 = columns[1]
-                .to_string()
-                .split("C").next()
-                .unwrap_or("").to_string();
+        let bin1: String = columns[0].to_string();
+        let bin2: String = columns[1].to_string();
+        let ani: f32 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
+        // let af1: f32 = columns[3].parse().expect("Failed to parse Ref. aligned fraction value as float from column 3");
+        // let af2: f32 = columns[4].parse().expect("Failed to parse Query. aligned fraction value as float from column 3");
 
-            let node1 = *bin_name_to_node
-                .entry(bin1.clone())
-                .or_insert_with(|| graph.add_node(bin1.clone()));
-            let node2 = *bin_name_to_node
-                .entry(bin2.clone())
-                .or_insert_with(|| graph.add_node(bin2.clone()));
-            if bin1 != bin2 {
-                graph.add_edge(node1, node2, ());
-            }
+        if !bin_qualities.get(&bin1).map_or(false, |q| q.contamination < 5.0) ||
+            !bin_qualities.get(&bin2).map_or(false, |q| q.contamination < 5.0) {
+            continue;
+        }
+    
+        // Get or insert nodes in the graph
+        let node1 = *bin_name_to_node
+            .entry(bin1.clone())
+            .or_insert_with(|| graph.add_node(bin1.clone()));
+
+        let node2 = *bin_name_to_node
+            .entry(bin2.clone())
+            .or_insert_with(|| graph.add_node(bin2.clone()));
+
+        // Add edge if bins are different and ANI > 99.0
+        if bin1 != bin2 && ani > 99.0 {
+            graph.add_edge(node1, node2, ());
         }
     }
-    // let files_to_remove = vec![
-    //     cluster_output.display().to_string() + "_all_seqs.fasta",
-    //     cluster_output.display().to_string() + "_rep_seq.fasta",
-    //     cluster_output.display().to_string() + "_cluster.tsv"];
-    // for file_name in files_to_remove {
-    //     let _ = fs::remove_file(file_name);
-    // }
    Ok(graph)
 }
 
@@ -443,38 +389,34 @@ pub fn get_connected_samples(
     connected_samples
 }
 
-// pub fn select_highcompletebin(
-//     bin_samplenames: &HashSet<String>,
-//     bin_qualities: &HashMap<String, BinQuality>,
-//     binspecificdir: &PathBuf,
-//     outputpath: &PathBuf,
-//     sid: String,
-//     bin_name: &str,
-// ) -> io::Result<()> {
-//     let highest_completebin = bin_samplenames
-//         .iter()
-//         .filter_map(|bin
-//         | bin_qualities.get(bin)
-//         .map(|quality
-//         | (bin, quality.completeness)))
-//         .max_by(|(_, completeness1),(_, completeness2)
-//         | completeness1
-//         .partial_cmp(completeness2)
-//         .unwrap_or(std::cmp::Ordering::Equal))
-//         .map(|(bin, _)| bin.clone());
+pub fn select_highcompletebin(
+    bin_samplenames: &HashSet<String>,
+    bin_qualities: &HashMap<String, BinQuality>,
+    bindir: &PathBuf,
+    outputpath: &PathBuf,
+) -> io::Result<()> {
+    let highest_completebin = bin_samplenames
+        .iter()
+        .filter_map(|bin
+        | bin_qualities.get(bin)
+        .map(|quality
+        | (bin, quality.completeness)))
+        .max_by(|(_, completeness1),(_, completeness2)
+        | completeness1
+        .partial_cmp(completeness2)
+        .unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(bin, _)| bin.clone());
     
-//     if let Some(sample_id) = highest_completebin {
-//         let bin_path = binspecificdir.join(format!("{}.fasta", sample_id));
-//         debug!("output path {:?} sample id {:?}", outputpath, sid);
-//         rename(bin_path,
-//             outputpath
-//             .join(
-//             format!("{}_{}_final.fasta",bin_name,sid)))?;
-//     } else {
-//         error!("No bin found with highest completeness for {:?}", bin_name);
-//     }
-//     Ok(())
-// }
+    if let Some(sample_id) = highest_completebin {
+        let bin_path = bindir.join(format!("{}.fasta", sample_id));
+        debug!("output path {:?} sample id {:?}", outputpath, sample_id);
+        fs::copy(bin_path,
+            outputpath
+            .join(
+            format!("{}_final.fasta",sample_id)))?;
+    }
+    Ok(())
+}
 
 
 pub fn process_high_quality_bins(
@@ -514,7 +456,7 @@ pub fn process_high_quality_bins(
 
 pub fn save_selectedbins(
     bin_qualities: &HashMap<String, BinQuality>,
-    binspecificdir: &PathBuf,
+    bindir: &PathBuf,
     outputpath: &PathBuf,
     bin_name: &str,
 ) -> io::Result<()> {
@@ -551,7 +493,7 @@ pub fn save_selectedbins(
     }
 
     for bin in selected_bins {
-        let bin_path = binspecificdir.join(format!("{}.fasta", bin));
+        let bin_path = bindir.join(format!("{}.fasta", bin));
         let final_filename = format!("{}_{}.fasta", bin_name, bin);
         let final_path = outputpath.join(final_filename);
 
