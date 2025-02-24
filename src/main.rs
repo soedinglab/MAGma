@@ -71,12 +71,12 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     // Parse arguments
-    let (bindir, gfadir, assemblydir, mapdir, readdir) = validate_paths(&cli)?;
+    let (mut bindir, gfadir, assemblydir, mapdir, readdir) = validate_paths(&cli)?;
     let format = cli.format;
     let threads = cli.threads;
     let min_overlaplen = cli.min_overlaplen;
     let split = cli.split;
-    let parentdir = bindir.parent().map(PathBuf::from).unwrap_or_else(|| path.clone());
+    let parentdir = bindir.parent().map(PathBuf::from).unwrap_or_else(|| bindir.clone());
     
     println!("Starting merge process with the following parameters:");
     println!("  bindir: {:?}", bindir);
@@ -197,18 +197,18 @@ fn main() -> io::Result<()> {
 
     let result = utility::calc_ani(&bindir, &bin_qualities, format);
     debug!("Graph was constructed for {:?}", bindir);
-    let connected_bins: Vec<HashSet<String>> = Vec::new();
-    match result {
+    let connected_bins: Vec<HashSet<String>> = match result {
         Ok(graph) => {
             debug!("Graph was constructed for {:?}", bindir);
-            connected_bins = utility::get_connected_samples(&graph);
-            debug!("Connected components {:?} for {:?}", connected_bins, bindir);
+            let bins = utility::get_connected_samples(&graph);  // bins is created here
+            debug!("Connected components {:?} for {:?}", bins, bindir);
+            bins
         },
         Err(e) => {
             eprintln!("Error calculating ANI: {}", e);
             return Ok(());
         }
-    }
+    };
 
     pool.install(|| {
         connected_bins
@@ -227,8 +227,7 @@ fn main() -> io::Result<()> {
                 &mapdir,
                 &readdir,
                 &resultdir,
-                &sample_list,
-                bin_qualities,
+                bin_qualities.clone(),
                 threads,
                 is_paired,
                 id,
@@ -253,7 +252,6 @@ fn process_components(
     mapdir: &PathBuf,
     readdir: &PathBuf,
     resultdir: &PathBuf,
-    sample_list: &Vec<String>,
     bin_qualities: HashMap<String, utility::BinQuality>,
     threads: usize,
     is_paired: bool,
@@ -308,7 +306,7 @@ fn process_components(
         })?;
 
     let mergebin_qualities = match utility::parse_bins_quality(
-        &checkm2_subsetpath
+        &checkm2_subsetqualities
     ) {
         Ok(quality) => quality,
         Err(_) => {
