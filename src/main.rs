@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use rayon::prelude::*;
 use rayon::{current_num_threads, ThreadPoolBuilder};
-use log::{debug, info};
+use log::{debug, error, info};
 use num_cpus;
 
 mod gfaparser;
@@ -32,6 +32,10 @@ struct Cli {
     /// Directory containing fasta files of bins
     #[arg(short = 'b', long = "bindir", help = "Directory containing fasta files of bins")]
     bindir: PathBuf,
+
+    /// Average Nucleotide Identity cutoff
+    #[arg(short = 'i', long = "ani", default_value_t = 99.0, help = "ANI for clustering bins")]
+    ani: f32,
 
     /// Directory containing gfa files for metagenomic samples (in gfa1.2 format)
     #[arg(short = 'g', long = "gfadir", help = "Directory containing gfa files")]
@@ -62,7 +66,7 @@ struct Cli {
     min_overlaplen: usize,
 
     /// First split bins before merging (if provided, set to true)
-    #[arg(long = "split", help = "Enable split")]
+    #[arg(long = "split", help = "Split clusters into sample-wise bins before processing")]
     split: bool,
 }
 
@@ -72,6 +76,7 @@ fn main() -> io::Result<()> {
 
     // Parse arguments
     let (mut bindir, gfadir, assemblydir, mapdir, readdir) = validate_paths(&cli)?;
+    let ani_cutoff = cli.ani;
     let format = cli.format;
     let threads = cli.threads;
     let min_overlaplen = cli.min_overlaplen;
@@ -80,6 +85,7 @@ fn main() -> io::Result<()> {
     
     println!("Starting merge process with the following parameters:");
     println!("  bindir: {:?}", bindir);
+    println!("  ANI (%): {:?}", ani_cutoff);
     println!("  gfadir: {:?}", gfadir);
     println!("  assemblydir: {:?}", assemblydir);
     println!("  mapdir: {:?}", mapdir);
@@ -110,10 +116,9 @@ fn main() -> io::Result<()> {
             Please provide the correct format argument.",
         ));
     }
-    debug!("binfiles {:?}", binfiles);
+
     let sample_list = utility::get_gfa_file_names(&gfadir);
     info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
-    debug!("sample list: {:?}", sample_list);
     
     // Final merge bins directory
     // eg: resultspath = <bindir>/mergedbins/
@@ -134,7 +139,7 @@ fn main() -> io::Result<()> {
     if split {
         // Create a directory to store sample-wise bins
         let samplewisebinspath: PathBuf = parentdir
-            .join("samplewisebin");
+            .join("samplewisebins");
         if samplewisebinspath.exists() {
             fs::remove_dir_all(&samplewisebinspath)?;
         }
@@ -162,13 +167,14 @@ fn main() -> io::Result<()> {
             });
         });
         bindir = samplewisebinspath;
+        debug!("splitting bins by sample {:?} is completed", bindir);
     }
-
     // Obtain quality of bins
     // eg: checkm2_outputpath = <bindir>/checkm2_results/
     let checkm2_outputpath: PathBuf = bindir
         .join("checkm2_results");
     
+    debug!("checkm2 evaluation for {:?} is started", bindir);
     // TODO: remove checkm2 output folder
     let checkm2_qualities = utility::assess_bins(
         &bindir,
@@ -188,6 +194,7 @@ fn main() -> io::Result<()> {
             return Ok(()); // Skip further processing for this bin
         }
     };
+    debug!("checkm2 evaluation for {:?} is completed", bindir);
 
     // None of the bins are pure
     if bin_qualities.len() == 0 {
@@ -195,12 +202,14 @@ fn main() -> io::Result<()> {
         return Ok(());
     }        
 
-    let result = utility::calc_ani(&bindir, &bin_qualities, format);
+    let result = utility::calc_ani(&bindir, &bin_qualities, ani_cutoff);
     debug!("Graph was constructed for {:?}", bindir);
     let connected_bins: Vec<HashSet<String>> = match result {
         Ok(graph) => {
             debug!("Graph was constructed for {:?}", bindir);
-            let bins = utility::get_connected_samples(&graph);  // bins is created here
+            debug!("Graph {:?}", graph);
+            // let bins = utility::get_connected_samples(&graph);
+            let bins = utility::find_cliques(&graph);
             debug!("Connected components {:?} for {:?}", bins, bindir);
             bins
         },
@@ -227,8 +236,8 @@ fn main() -> io::Result<()> {
                 &mapdir,
                 &readdir,
                 &resultdir,
+                sample_list.clone(),
                 bin_qualities.clone(),
-                threads,
                 is_paired,
                 id,
             )
@@ -252,23 +261,49 @@ fn process_components(
     mapdir: &PathBuf,
     readdir: &PathBuf,
     resultdir: &PathBuf,
+    sample_list: Vec<String>,
     bin_qualities: HashMap<String, utility::BinQuality>,
-    threads: usize,
     is_paired: bool,
     id: usize,
 ) -> std::io::Result<()> {
 
     // eg: comp = {"binname_S1", "binname_S2"}
-    debug!("{} id for {:?}", id, component);
+    debug!("{} id with length {} for component {:?}", id, component.len(), component);
     if component.len() == 1 {
         debug!("Single component. Process it further {:?}", component);
         let binname = component.into_iter().next().expect("The component is empty.");
+        if let Some(quality) = bin_qualities.get(&binname) {
+            if quality.completeness > 50.0 {
+                let bin_path = bindir.join(format!("{}.fasta", binname));
+                let final_path = resultdir.join(format!("{}.fasta", binname));
+                debug!("Copying {:?} to {:?} for component {}", bin_path, final_path, id.to_string());
+                
+                if let Err(e) = fs::copy(&bin_path, &final_path) {
+                    debug!("Failed to copy bin {}: {:?}", binname, e);
+                }
+            }
+        }
+        return Ok(());
+    }
+    
+    
+
+    if let Some((binname, best_quality)) = bin_qualities
+        .iter()
+        .filter(|(_, q)| q.completeness > 90.0) // Only consider completeness > 90
+        .max_by(|a, b| a.1.completeness.partial_cmp(&b.1.completeness).unwrap()) 
+    {
+        info!(
+            "Component {} has samplebin with highest completeness > 90: {} (Completeness: {})",
+            id.to_string(), binname, best_quality.completeness
+        );
         let bin_path = bindir.join(format!("{}.fasta", binname));
         let final_path = resultdir.join(format!("{}.fasta", binname));
 
         if let Err(e) = fs::copy(&bin_path, &final_path) {
             debug!("Failed to save bin {}: {:?}", binname, e);
         }
+
         return Ok(());
     }
 
@@ -282,22 +317,22 @@ fn process_components(
     fs::create_dir(&selected_binset_path)?;
 
     utility::combine_fastabins(
-        &bindir,
-        &component,
-        &selected_binset_path).map_err(|e| {
-            eprintln!(
-                "Error in combining combined bins for component {}: {}",
-                id, e
-            );
-            e
-        })?;
+    &bindir,
+    &component,
+    &selected_binset_path).map_err(|e| {
+        eprintln!(
+            "Error in combining combined bins for component {}: {}",
+            id, e
+        );
+        e
+    })?;
 
     // eg. checkm2_subsetpath = <bindir>/0_checkm2_results/
     let checkm2_subsetpath: PathBuf = 
         bindir.join(format!("{}_checkm2_results", id.to_string()));
     let checkm2_subsetqualities = 
         utility::assess_bins(&selected_binset_path, 
-        &checkm2_subsetpath, threads, "fasta").map_err(|e| {
+        &checkm2_subsetpath, 8, "fasta").map_err(|e| {
             eprintln!(
                 "Error in assessing combined bins for component {}: {}",
                 id, e
@@ -327,35 +362,47 @@ fn process_components(
 
     // Check quality of combined bin and process only if it is high purity.
     // Otherwise choose the best bin
-    if let Some(bin_quality) = mergebin_qualities.get("combined") {
+    // if let Some(bin_quality) = mergebin_qualities.get("combined") {
         
-        // combined bin has low contamination, it will be processed further
-        // TODO: If combined bin completeness is lower than unmerged bins, decision should be taken
-        if bin_quality.contamination < 50f64 {
-            // eg: from <bindir>/0_combined/combined.fasta
-            // to <bindir>/0_combined/0_combined.fasta
-            let _ = rename(selected_binset_path
-                .join("combined.fasta"), 
-                selected_binset_path.join(format!("{}_combined.fasta",id.to_string())));
-        }
-    }
+    //     // combined bin has low contamination, it will be processed further
+    //     // TODO: If combined bin completeness is lower than unmerged bins, decision should be taken
+    //     if bin_quality.contamination < 50f64 {
+    //         // eg: from <bindir>/0_combined/combined.fasta
+    //         // to <bindir>/0_combined/0_combined.fasta
+    //         let _ = rename(selected_binset_path
+    //             .join("combined.fasta"), 
+    //             selected_binset_path.join(format!("{}_combined.fasta",id.to_string())));
+    //     }
+    // }
     
-    if !selected_binset_path.join(format!("{}_combined.fasta",id.to_string())).exists() {
-        info!("For bin {}, no merged bin passes quality criteria to proceed to assembly", id);
-        let _ = utility::select_highcompletebin(
-            &component,
-            &bin_qualities,
-            &bindir,
-            resultdir,
-        );
-        return Ok(());
-    }
+    // if !selected_binset_path.join(format!("{}_combined.fasta",id.to_string())).exists() {
+    //     info!("For bin {}, no merged bin passes quality criteria to proceed to assembly", id);
+    //     let _ = utility::select_highcompletebin(
+    //         &component,
+    //         &bin_qualities,
+    //         &bindir,
+    //         resultdir,
+    //     );
+    //     return Ok(());
+    // }
+
+    let _ = rename(selected_binset_path
+        .join("combined.fasta"), 
+        selected_binset_path.join(format!("{}_combined.fasta",id.to_string())));
 
     let mut create_new = true;
     let mut all_enriched_scaffolds = HashSet::new();
     for samplebin in component.clone() {
         debug!("going to read gfa processing for {}", samplebin);
-        let sample = samplebin.rsplit('_').next().unwrap().to_string();
+        let sample = sample_list
+            .iter()
+            .find(|sample| samplebin.contains(*sample))
+            .cloned()
+            .ok_or_else(|| {
+                error!("Bin in the component {} does not have a matching sample ID", samplebin);
+                std::io::Error::new(std::io::ErrorKind::NotFound, "Sample ID not found")
+            })?;
+
         // eg: <gfadir>/S1.gfa
         let gfa_path = gfadir.join(format!("{}.gfa", sample));
         let gfa_file = utility::path_to_str(&gfa_path);
@@ -397,7 +444,14 @@ fn process_components(
     create_new = true;
     debug!("all enriched scaffolds: {} {:?}", all_enriched_scaffolds.len(), all_enriched_scaffolds);
     for samplebin in component.clone() {
-        let sample = samplebin.rsplit('_').next().unwrap().to_string();
+        let sample = sample_list
+            .iter()
+            .find(|sample| samplebin.contains(*sample))
+            .cloned()
+            .ok_or_else(|| {
+                error!("Bin in the component {} does not have a matching sample ID", samplebin);
+                std::io::Error::new(std::io::ErrorKind::NotFound, "Sample ID not found")
+            })?;
         debug!("processing sample file {} to get reads", sample);
         let mapid_path = mapdir.join(format!("{}_mapids", sample));
         let mapid_file = utility::path_to_str(&mapid_path);
@@ -417,7 +471,6 @@ fn process_components(
                 read_path.to_str().expect("Failed to convert PathBuf to &str").to_string()
             ]
         };
-        
         
         debug!("map id {} read file1 {:?} ", mapid_file, read_files);
         let _ = fetch_fastqreads(
@@ -440,7 +493,7 @@ fn process_components(
         &selected_binset_path.join(format!("{}_combined_enriched.fasta",id.to_string())),
         &reassembly_outputdir,
         true,
-        threads,
+        8,
     );
     info!("Completed assembly for {}", id);
     debug!("status: {:?} {:?}", status, selected_binset_path.join("combined.fasta"));

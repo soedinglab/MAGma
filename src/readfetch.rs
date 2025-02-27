@@ -83,7 +83,7 @@ fn write_selected_reads(
         .collect();
 
     // Prepare the read ID file
-    let readid_file = format!("{}_readid", output_fastq[0].replace(".fastq", ""));
+    let readid_file = format!("{}_readids", output_fastq[0].replace(".fastq", ""));
     debug!(
         "Number of selected reads: {:?}, Read ID file: {:?}",
         selected_reads.len(),
@@ -97,7 +97,11 @@ fn write_selected_reads(
     };
 
     for read in &selected_reads {
-        writeln!(idfile, "{}", read)?;
+        // As of now it only works for readid format: @SRR3961047.1
+        let parts: Vec<&str> = read.split('.').take(2).collect();
+        let readid = parts.join(".").trim_start_matches('@').to_string();
+        debug!("readid: {readid}");
+        writeln!(idfile, "{}", readid)?;
     }
 
     // Define the file writing logic based on `create_new`

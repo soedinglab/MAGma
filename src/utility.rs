@@ -1,13 +1,13 @@
 use csv::ReaderBuilder;
 use bio::io::fasta;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::fs::{self, File, rename};
 use std::io::{self, BufRead, BufReader, Write};
 use petgraph::graph::Graph;
 use petgraph::visit::Dfs;
-use petgraph::Undirected;
-use std::process::{exit, Command as ProcessCommand, ExitStatus, Stdio};
+use petgraph::{Undirected, prelude};
+use std::process::{exit, Command as ProcessCommand, Stdio};
 use log::{debug, info, error};
 use glob::glob;
 
@@ -309,26 +309,37 @@ pub fn combine_fastabins(
 pub fn calc_ani(
     bins: &PathBuf,
     bin_qualities: &HashMap<String, BinQuality>,
-    format: String,
+    ani_cutoff: f32,
 ) -> io::Result<Graph<String, (), Undirected>> {
-    let ani_output: PathBuf = Path::new(bins).join("ani_edges");
-    let ani_input: String = format!("{}/*.{}", bins.display(), format);
-    let output: ExitStatus = ProcessCommand::new("skani")
-        .arg("triangle")
-        .arg(ani_input)
-        .arg("-E >")
-        .arg(ani_output.clone())
-        .stdout(Stdio::null())
-        // .stderr(Stdio::null())
-        .status()?; // Execute the command and get the status
+    let ani_output: PathBuf = bins.join("ani_edges");
+    let bin_files: Vec<String> = glob(&format!("{}/*.fasta", bins.display()))
+    .expect("Failed to read glob pattern")
+    .filter_map(Result::ok)
+    .map(|path| path.to_string_lossy().into_owned())
+    .collect();
 
-    if !output.success() {
-        error!("Error: skani triangle failed");
-        exit(1); // Exit if the command fails
+    if bin_files.is_empty() {
+        error!("No fasta files found in {:?}", bins);
+        return Err(io::Error::new(io::ErrorKind::NotFound, "No fasta files found"));
+    }
+
+    debug!("ani input to skani: {:?}", bin_files);
+    let mut command = ProcessCommand::new("skani");
+    command.arg("triangle");
+    command.args(&bin_files);
+    command.arg("-E");
+
+    let output_file = File::create(&ani_output)?;
+    command.stdout(Stdio::from(output_file));
+    command.stderr(Stdio::inherit()); // Keep stderr visible
+
+    let status = command.status()?;
+    if !status.success() {
+        return Err(io::Error::new(io::ErrorKind::Other, "skani triangle failed"));
     }
     
-    let mut graph: Graph<String, (), Undirected> = Graph::<String, (), Undirected>::default();
-    let mut bin_name_to_node: HashMap<String, petgraph::prelude::NodeIndex> = HashMap::new();
+    let mut graph: Graph<String, (), Undirected> = Graph::default();
+    let mut bin_name_to_node: HashMap<String, prelude::NodeIndex> = HashMap::new();
     let file: File = File::open(ani_output)?;
     let reader: BufReader<File> = io::BufReader::new(file);
 
@@ -336,33 +347,116 @@ pub fn calc_ani(
         let line: String = line?;
         let columns: Vec<&str> = line.split('\t').collect();
 
-        // Assuming the bin names are in the first two columns (contig1, contig2)
-        let bin1: String = columns[0].to_string();
-        let bin2: String = columns[1].to_string();
-        let ani: f32 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
-        // let af1: f32 = columns[3].parse().expect("Failed to parse Ref. aligned fraction value as float from column 3");
-        // let af2: f32 = columns[4].parse().expect("Failed to parse Query. aligned fraction value as float from column 3");
+        let bin1 = Path::new(columns[0])
+            .file_stem()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| columns[0].to_string());
 
-        if !bin_qualities.get(&bin1).map_or(false, |q| q.contamination < 5.0) ||
-            !bin_qualities.get(&bin2).map_or(false, |q| q.contamination < 5.0) {
+        let bin2 = Path::new(columns[1])
+            .file_stem()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| columns[1].to_string());
+        debug!("bin1: {} bin2: {}", bin1, bin2);
+        let ani: f32 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
+        
+        if !bin_qualities
+            .get(&bin1)
+            .map_or(false, |q| q.contamination < 5.0)
+            || !bin_qualities
+                .get(&bin2)
+                .map_or(false, |q| q.contamination < 5.0)
+        {
             continue;
         }
     
-        // Get or insert nodes in the graph
-        let node1 = *bin_name_to_node
-            .entry(bin1.clone())
-            .or_insert_with(|| graph.add_node(bin1.clone()));
+        let is_bin1_valid = bin_qualities
+            .get(&bin1)
+            .map_or(false, |q| q.completeness > 20.0);
 
-        let node2 = *bin_name_to_node
-            .entry(bin2.clone())
-            .or_insert_with(|| graph.add_node(bin2.clone()));
-
-        // Add edge if bins are different and ANI > 99.0
-        if bin1 != bin2 && ani > 99.0 {
-            graph.add_edge(node1, node2, ());
+        debug!("For bin1 {:?}, satisfy completeness {}", bin1, is_bin1_valid);
+    
+        let is_bin2_valid = bin_qualities
+            .get(&bin2)
+            .map_or(false, |q| q.completeness > 20.0);
+        debug!("For bin2 {:?}, satisfy completeness {}", bin2, is_bin2_valid);
+        
+        let node1 = if is_bin1_valid {
+            Some(*bin_name_to_node
+                .entry(bin1.clone())
+                .or_insert_with(|| graph.add_node(bin1.clone())))
+        } else {
+            None
+        };
+        
+        let node2 = if is_bin2_valid {
+            Some(*bin_name_to_node
+                .entry(bin2.clone())
+                .or_insert_with(|| graph.add_node(bin2.clone())))
+        } else {
+            None
+        };
+        
+        // Add edge only if both nodes are valid, bins are different, and ANI > 99.0
+        if let (Some(node1), Some(node2)) = (node1, node2) {
+            if bin1 != bin2 && ani > ani_cutoff {
+                graph.add_edge(node1, node2, ());
+            }
         }
     }
    Ok(graph)
+}
+
+/// Find connected components that are cliques (fully connected subgraphs).
+pub fn find_cliques(graph: &Graph<String, (), Undirected>) -> Vec<HashSet<String>> {
+    let mut visited = HashSet::new();
+    let mut clique_components = Vec::new();
+
+    for node_index in graph.node_indices() {
+        if !visited.contains(&node_index) {
+            let mut component = HashSet::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(node_index);
+
+            while let Some(nx) = queue.pop_front() {
+                if visited.insert(nx) {
+                    let node_name = graph[nx].clone();
+                    component.insert(node_name.clone());
+
+                    // Add neighbors to queue
+                    for neighbor in graph.neighbors(nx) {
+                        if !visited.contains(&neighbor) {
+                            queue.push_back(neighbor);
+                        }
+                    }
+                }
+            }
+
+            // Check if the component is a clique (fully connected subgraph)
+            if is_clique(graph, &component) {
+                clique_components.push(component);
+            }
+        }
+    }
+
+    clique_components
+}
+
+/// Check if a given set of nodes form a clique (fully connected subgraph).
+fn is_clique(graph: &Graph<String, (), Undirected>, component: &HashSet<String>) -> bool {
+    let nodes: Vec<_> = component.iter().collect();
+    
+    // Every pair of nodes in the component should be directly connected
+    for (i, node1) in nodes.iter().enumerate() {
+        for node2 in nodes.iter().skip(i + 1) {
+            let index1 = graph.node_indices().find(|&idx| &graph[idx] == *node1).unwrap();
+            let index2 = graph.node_indices().find(|&idx| &graph[idx] == *node2).unwrap();
+
+            if !graph.contains_edge(index1, index2) {
+                return false; // Not a clique
+            }
+        }
+    }
+    true
 }
 
 pub fn get_connected_samples(
@@ -397,25 +491,23 @@ pub fn select_highcompletebin(
 ) -> io::Result<()> {
     let highest_completebin = bin_samplenames
         .iter()
-        .filter_map(|bin
-        | bin_qualities.get(bin)
-        .map(|quality
-        | (bin, quality.completeness)))
-        .max_by(|(_, completeness1),(_, completeness2)
-        | completeness1
-        .partial_cmp(completeness2)
-        .unwrap_or(std::cmp::Ordering::Equal))
+        .filter_map(|bin| bin_qualities.get(bin)
+        .map(|quality| (bin, quality.completeness)))
+        .max_by(|(_, completeness1), (_, completeness2)| {
+            completeness1.partial_cmp(completeness2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .filter(|(_, max_completeness)| *max_completeness >= 50.0)
         .map(|(bin, _)| bin.clone());
-    
+
     if let Some(sample_id) = highest_completebin {
         let bin_path = bindir.join(format!("{}.fasta", sample_id));
-        debug!("output path {:?} sample id {:?}", outputpath, sample_id);
-        fs::copy(bin_path,
-            outputpath
-            .join(
-            format!("{}_final.fasta",sample_id)))?;
+        debug!("Output path {:?}, Sample ID {:?}", outputpath, sample_id);
+        
+        fs::copy(bin_path, outputpath.join(format!("{}.fasta", sample_id)))?;
     }
     Ok(())
+
 }
 
 
