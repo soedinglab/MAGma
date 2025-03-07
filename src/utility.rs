@@ -2,7 +2,7 @@ use csv::ReaderBuilder;
 use bio::io::fasta;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::fs::{self, File, rename};
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use petgraph::graph::Graph;
 use petgraph::visit::Dfs;
@@ -135,6 +135,7 @@ pub fn splitbysampleid(
     bin: &PathBuf,
     bin_name: &str,
     binspecificdir: &PathBuf,
+    format: &String,
 ) -> io::Result<()>{
 
     if !binspecificdir.exists() {
@@ -150,7 +151,7 @@ pub fn splitbysampleid(
         let line = line?;
         if line.starts_with('>') {
             current_sample_id = extract_sample_id(&line)?;
-            ensure_writer(&current_sample_id, bin_name, binspecificdir, &mut writers)?;
+            ensure_writer(&current_sample_id, bin_name, binspecificdir, format, &mut writers)?;
         }
         write_line_to_file(&current_sample_id, &line, &mut writers)?;
     }
@@ -174,14 +175,15 @@ pub fn ensure_writer(
     sample_id: &str,
     bin_name: &str,
     binspecificdir: &Path,
+    format: &String,
     writers: &mut HashMap<String, File>,
 ) -> io::Result<()> {
     if !writers.contains_key(sample_id) {
         let output_filename = 
             binspecificdir
             .join(
-            format!("{}_{}.fasta"
-            ,bin_name,sample_id));
+            format!("{}_{}.{}"
+            ,bin_name,sample_id, format));
         let output_file =
             File::create(output_filename)?;
         writers.insert(
@@ -282,13 +284,14 @@ pub fn combine_fastabins(
     inputdir: &Path,
     bin_samplenames: &HashSet<String>,
     combined_bins: &Path,
+    format: &String,
 ) -> io::Result<()> {
     // Combine bins fasta into a single file
     let mut output_writer = File::create(
         combined_bins
         .join(format!("combined.fasta")))?;
     for bin_samplename in bin_samplenames {
-        let bin_file_path = inputdir.join(format!("{}.fasta", bin_samplename));
+        let bin_file_path = inputdir.join(format!("{}.{}", bin_samplename, format));
         debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path, combined_bins);
         if bin_file_path.exists() {
             let bin_file = File::open(&bin_file_path)?;
@@ -309,10 +312,11 @@ pub fn combine_fastabins(
 pub fn calc_ani(
     bins: &PathBuf,
     bin_qualities: &HashMap<String, BinQuality>,
+    format: &String,
     ani_cutoff: f32,
 ) -> io::Result<Graph<String, (), Undirected>> {
     let ani_output: PathBuf = bins.join("ani_edges");
-    let bin_files: Vec<String> = glob(&format!("{}/*.fasta", bins.display()))
+    let bin_files: Vec<String> = glob(&format!("{}/*.{}", bins.display(), format))
     .expect("Failed to read glob pattern")
     .filter_map(Result::ok)
     .map(|path| path.to_string_lossy().into_owned())
@@ -323,7 +327,6 @@ pub fn calc_ani(
         return Err(io::Error::new(io::ErrorKind::NotFound, "No fasta files found"));
     }
 
-    debug!("ani input to skani: {:?}", bin_files);
     let mut command = ProcessCommand::new("skani");
     command.arg("triangle");
     command.args(&bin_files);
@@ -343,6 +346,21 @@ pub fn calc_ani(
     let file: File = File::open(ani_output)?;
     let reader: BufReader<File> = io::BufReader::new(file);
 
+    // First, add nodes to the graph
+    for bin in bin_qualities.keys() {
+
+        debug!("bin node {:?}", bin);
+        if !bin_qualities
+            .get(bin)
+            .map_or(false, |q| q.contamination < 5.0 && q.completeness > 20.0)
+        {
+            continue;
+        }
+        bin_name_to_node
+        .entry(bin.clone())
+        .or_insert_with(|| graph.add_node(bin.clone()));
+    }
+    // Add links between nodes based on the ANI calcuation
     for line in reader.lines().skip(1) {
         let line: String = line?;
         let columns: Vec<&str> = line.split('\t').collect();
@@ -356,51 +374,21 @@ pub fn calc_ani(
             .file_stem()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| columns[1].to_string());
-        debug!("bin1: {} bin2: {}", bin1, bin2);
         let ani: f32 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
         
-        if !bin_qualities
-            .get(&bin1)
-            .map_or(false, |q| q.contamination < 5.0)
-            || !bin_qualities
-                .get(&bin2)
-                .map_or(false, |q| q.contamination < 5.0)
-        {
+        if bin1 == bin2 || ani < ani_cutoff {
+            debug!("bin1: {} bin2: {} ani: {} which are same or ani is low", bin1, bin2, ani);
             continue;
         }
     
-        let is_bin1_valid = bin_qualities
-            .get(&bin1)
-            .map_or(false, |q| q.completeness > 20.0);
-
-        debug!("For bin1 {:?}, satisfy completeness {}", bin1, is_bin1_valid);
-    
-        let is_bin2_valid = bin_qualities
-            .get(&bin2)
-            .map_or(false, |q| q.completeness > 20.0);
-        debug!("For bin2 {:?}, satisfy completeness {}", bin2, is_bin2_valid);
-        
-        let node1 = if is_bin1_valid {
-            Some(*bin_name_to_node
-                .entry(bin1.clone())
-                .or_insert_with(|| graph.add_node(bin1.clone())))
-        } else {
-            None
-        };
-        
-        let node2 = if is_bin2_valid {
-            Some(*bin_name_to_node
-                .entry(bin2.clone())
-                .or_insert_with(|| graph.add_node(bin2.clone())))
-        } else {
-            None
-        };
-        
-        // Add edge only if both nodes are valid, bins are different, and ANI > 99.0
-        if let (Some(node1), Some(node2)) = (node1, node2) {
-            if bin1 != bin2 && ani > ani_cutoff {
-                graph.add_edge(node1, node2, ());
-            }
+        // Check if both bins exist in the bin_name_to_node map
+        if let (Some(node1), Some(node2)) = (
+            bin_name_to_node.get(&bin1),
+            bin_name_to_node.get(&bin2),
+        ) {
+            // Add edge if both bins exist in the graph
+            debug!("bin1: {} bin2: {} adding edges", bin1, bin2);
+            graph.add_edge(*node1, *node2, ());
         }
     }
    Ok(graph)
@@ -434,6 +422,11 @@ pub fn find_cliques(graph: &Graph<String, (), Undirected>) -> Vec<HashSet<String
             // Check if the component is a clique (fully connected subgraph)
             if is_clique(graph, &component) {
                 clique_components.push(component);
+            } else {
+                for node in component {
+                    debug!("Nodes in a non clique component {}", node);
+                    clique_components.push(HashSet::from([node]));
+                }
             }
         }
     }
@@ -511,19 +504,41 @@ pub fn select_highcompletebin(
 }
 
 
-pub fn process_high_quality_bins(
+pub fn check_high_quality_bin(
     comp: &HashSet<String>,
     bin_qualities: &HashMap<String, BinQuality>,
-    binspecificdir: &PathBuf,
-    resultpath: &PathBuf,
-    bin_name: &str,
-) -> io::Result<()> {
+    bindir: &PathBuf,
+    resultdir: &PathBuf,
+    id: usize,
+    format: &String,
+) -> bool {
     let comp_binqualities: HashMap<String, BinQuality> = bin_qualities
         .iter()
         .filter(|(bin, _)| comp.contains(*bin))
         .map(|(bin, quality)| (bin.to_string(), quality.clone()))
         .collect();
 
+
+    if let Some((binname, best_quality)) = comp_binqualities
+        .iter()
+        .filter(|(_, q)| q.completeness > 90.0) // Only consider completeness > 90
+        .max_by(|a, b| a.1.completeness.partial_cmp(&b.1.completeness).unwrap()) 
+    {
+        info!(
+            "Component {} has samplebin with highest completeness > 90: {} (Completeness: {})",
+            id.to_string(), binname, best_quality.completeness
+        );
+        let bin_path = bindir.join(format!("{}.{}", binname, format));
+        let final_path = resultdir.join(format!("{}.fasta", binname));
+
+        if let Err(e) = fs::copy(&bin_path, &final_path) {
+            debug!("Failed to save bin {}: {:?}", binname, e);
+            return false;
+        }
+        return true;
+    }
+    false
+}
     // select_highcompletebin(
     //     comp,
     //     &comp_binqualities,
@@ -537,64 +552,62 @@ pub fn process_high_quality_bins(
     //     e
     // })?;
 
-    let _  = save_selectedbins(
-        &comp_binqualities,
-        binspecificdir,
-        resultpath,
-        bin_name
-    );
-    Ok(())
-}
+    // let _  = save_selectedbins(
+    //     &comp_binqualities,
+    //     binspecificdir,
+    //     resultpath,
+    //     bin_name
+    // );
 
-pub fn save_selectedbins(
-    bin_qualities: &HashMap<String, BinQuality>,
-    bindir: &PathBuf,
-    outputpath: &PathBuf,
-    bin_name: &str,
-) -> io::Result<()> {
+// pub fn save_selectedbins(
+//     bin_qualities: &HashMap<String, BinQuality>,
+//     bindir: &PathBuf,
+//     outputpath: &PathBuf,
+//     bin_name: &str,
+// ) -> io::Result<()> {
    
-    let mut selected_bins: Vec<&String> = Vec::new();
+//     let mut selected_bins: Vec<&String> = Vec::new();
 
-    let thresholds = [
-        (90.0, 5.0),  // First attempt: completeness > 90%, contamination < 5%
-        (70.0, 10.0), // Second attempt: completeness > 70%, contamination < 10%
-        // (50.0, 10.0), // Third attempt: completeness > 50%, contamination < 10%
-    ];
+//     let thresholds = [
+//         (90.0, 5.0),  // First attempt: completeness > 90%, contamination < 5%
+//         (70.0, 10.0), // Second attempt: completeness > 70%, contamination < 10%
+//         // (50.0, 10.0), // Third attempt: completeness > 50%, contamination < 10%
+//     ];
 
-    for &(completeness_thresh, contamination_thresh) in &thresholds {
-        selected_bins = bin_qualities
-            .iter()
-            .filter(|(_, quality)| quality.completeness >= completeness_thresh 
-                && quality.contamination < contamination_thresh)
-            .map(|(bin, _)| bin)
-            .collect();
-        debug!("selected bins {:?} for {}", selected_bins, bin_name);
-        if !selected_bins.is_empty() {
-            break;
-        }
+//     for &(completeness_thresh, contamination_thresh) in &thresholds {
+//         selected_bins = bin_qualities
+//             .iter()
+//             .filter(|(_, quality)| quality.completeness >= completeness_thresh 
+//                 && quality.contamination < contamination_thresh)
+//             .map(|(bin, _)| bin)
+//             .collect();
+//         debug!("selected bins {:?} for {}", selected_bins, bin_name);
+//         if !selected_bins.is_empty() {
+//             break;
+//         }
 
-        debug!(
-            "No bins met the criteria (completeness > {}, contamination < {}) for {}",
-            completeness_thresh, contamination_thresh, bin_name
-        );
-    }
+//         debug!(
+//             "No bins met the criteria (completeness > {}, contamination < {}) for {}",
+//             completeness_thresh, contamination_thresh, bin_name
+//         );
+//     }
 
-    if selected_bins.is_empty() {
-        debug!("No bins met the quality criteria for {}", bin_name);
-        return Ok(()); // Exit early if no bins match
-    }
+//     if selected_bins.is_empty() {
+//         debug!("No bins met the quality criteria for {}", bin_name);
+//         return Ok(()); // Exit early if no bins match
+//     }
 
-    for bin in selected_bins {
-        let bin_path = bindir.join(format!("{}.fasta", bin));
-        let final_filename = format!("{}_{}.fasta", bin_name, bin);
-        let final_path = outputpath.join(final_filename);
+//     for bin in selected_bins {
+//         let bin_path = bindir.join(format!("{}.fasta", bin));
+//         let final_filename = format!("{}_{}.fasta", bin_name, bin);
+//         let final_path = outputpath.join(final_filename);
 
-        if let Err(e) = rename(&bin_path, &final_path) {
-            debug!("Failed to save bin {}: {:?}", bin, e);
-        }
-    }
-    Ok(())
-}
+//         if let Err(e) = rename(&bin_path, &final_path) {
+//             debug!("Failed to save bin {}: {:?}", bin, e);
+//         }
+//     }
+//     Ok(())
+// }
 
 
 pub fn run_reassembly(
@@ -603,47 +616,101 @@ pub fn run_reassembly(
     outputdir: &PathBuf,
     is_paired: bool,
     threads: usize,
-) -> io::Result<bool> {
+    assembler: String,
+    resultdir: &PathBuf,
+    id: usize,
+    bindir: &PathBuf,
+    component: HashSet<String>,
+    bin_qualities: HashMap<String, BinQuality>,
+) {
     
     if readfile.is_empty() {
         error!("Error: No read files provided.");
         exit(1);
     }
-    // Run SPAdes assembler
-    let mut output = ProcessCommand::new("spades.py");
-        output.arg("--trusted-contigs")
-        .arg(binfile)
-        .arg("--only-assembler")
-        // .arg("--careful")
-        .arg("-o")
-        .arg(outputdir)
-        .arg("-t")
-        .arg(threads.to_string())
-        .arg("-m")
-        .arg(128.to_string())
-        .stdout(Stdio::null());
-    if is_paired {
-        output.arg("--12").arg(&readfile[0]);
-    } else {
-        output.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+    if assembler == "spades" {
+        // Run SPAdes assembler
+        let mut output = ProcessCommand::new("spades.py");
+            output.arg("--trusted-contigs")
+            .arg(binfile)
+            .arg("--only-assembler")
+            // .arg("--careful")
+            .arg("-o")
+            .arg(outputdir)
+            .arg("-t")
+            .arg(threads.to_string())
+            .arg("-m")
+            .arg(128.to_string())
+            .stdout(Stdio::null());
+        if is_paired {
+            output.arg("--12").arg(&readfile[0]);
+        } else {
+            output.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+        }
+    
+        match output.status() {
+            Ok(status) if status.success() => {
+                info!("SPAdes completed successfully for {:?}", id);
+                let _ = filterscaffold(&outputdir.join("scaffolds.fasta"));
+                let _ = fs::rename(outputdir.join("scaffolds_filtered.fasta"), 
+                resultdir.join(format!("{}_merged.fasta", id.to_string())));
+            }
+            Ok(_) => {
+                error!("NOTE: SPAdes failed for {:?}! This is likely due to small input bin and insufficient k-mer counts from readset."
+                    ,binfile.iter()
+                    .rev()
+                    .nth(2)  // nth(2) gives the third component (0-based index)
+                    .map(|bin| bin.to_string_lossy().to_string()).unwrap());
+                let _ = select_highcompletebin(
+                    &component,
+                    &bin_qualities,
+                    &bindir,
+                    &resultdir,
+                );
+            }
+            Err(e) => {
+                error!("Error: Failed to execute SPAdes command - {}", e);
+            }
+        }
     } 
-
-    match output.status() {
-        Ok(status) if status.success() => {
-            info!("SPAdes completed successfully for {:?}", binfile);
-            Ok(true)
+    if assembler == "megahit" {
+        // Run Megahit assembler
+        let mut output = ProcessCommand::new("megahit");
+            output.arg("-o")
+            .arg(outputdir)
+            .arg("-t")
+            .arg(threads.to_string())
+            .arg("--min-contig-len")
+            .arg(500.to_string())
+            .stdout(Stdio::null());
+        if is_paired {
+            output.arg("--12").arg(&readfile[0]);
+        } else {
+            output.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
         }
-        Ok(_) => {
-            error!("NOTE: SPAdes failed for {:?}! This is likely due to small input bin and insufficient k-mer counts from readset."
-                ,binfile.iter()
-                .rev()
-                .nth(2)  // nth(2) gives the third component (0-based index)
-                .map(|bin| bin.to_string_lossy().to_string()).unwrap());
-            Ok(false)
-        }
-        Err(e) => {
-            error!("Error: Failed to execute SPAdes command - {}", e);
-            Err(e)
+    
+        match output.status() {
+            Ok(status) if status.success() => {
+                info!("Megahit completed successfully for {:?}", id);
+                let _ = fs::rename(outputdir.join("final.contigs.fa"), 
+                resultdir.join(format!("{}_merged.fasta", id.to_string())));
+            }
+            Ok(_) => {
+                error!("NOTE: Megahit failed for {:?}! Why?"
+                    ,binfile.iter()
+                    .rev()
+                    .nth(2)  // nth(2) gives the third component (0-based index)
+                    .map(|bin| bin.to_string_lossy().to_string()).unwrap());
+                let _ = select_highcompletebin(
+                    &component,
+                    &bin_qualities,
+                    &bindir,
+                    &resultdir,
+                );
+            }
+            Err(e) => {
+                error!("Error: Failed to execute SPAdes command - {}", e);
+            }
         }
     }
 }
@@ -690,7 +757,7 @@ pub fn get_output_binname(bin_fasta: &str) -> PathBuf {
     let filename = path.file_stem()
         .map(|stem| stem.to_str().unwrap_or("default"))
         .unwrap_or("default");
-    output_dir.join(format!("{}_enriched.fasta", filename))
+    output_dir.join(format!("{}.fasta", filename))
 }
 
 

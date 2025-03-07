@@ -24,16 +24,13 @@ impl GfaGraph {
     // Parsing Path lines to map scaffolds to segments
     fn add_path(&mut self, scaffold: String, segments: Vec<String>) {
         for segment in &segments {
-            let clean_segment = segment.trim_end_matches(&['+', '-']);
-            self.segment_to_scaffold.insert(clean_segment.to_string(), scaffold.clone());
+            self.segment_to_scaffold.insert(segment.to_string(), scaffold.clone());
         }
         self.scaffold_to_segments.insert(scaffold, segments);
     }
 
     // Adds an overlap between two segments, linking their scaffolds
     fn add_overlap(&mut self, seg1: String, seg2: String) {
-        let seg1 = seg1.trim_end_matches(&['+', '-']).to_string();
-        let seg2 = seg2.trim_end_matches(&['+', '-']).to_string();
         if let (Some(scaf1), Some(scaf2)) = (
             self.segment_to_scaffold.get(&seg1),
             self.segment_to_scaffold.get(&seg2),
@@ -129,19 +126,24 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
     for line in path_lines {
         let fields: Vec<&str> = line.split('\t').collect();
         if let [_, scaffold, segments, _] = &fields[..] {
-            let segments: Vec<String> = segments
-                .split([';', ','])
-                .map(|s| s.to_string())
-                .collect();
-            graph.add_path(scaffold.to_string(), segments);
+            // let segments: Vec<String> = segments
+            //     .split([';', ','])
+            //     .map(|s| s.to_string())
+            //     .collect();
+            let segments: Vec<String> = segments.split([';', ',']).map(String::from).collect();
+            let first_last = vec![
+                segments.first().cloned().unwrap_or_default(),
+                segments.last().cloned().unwrap_or_default(),
+            ];
+            graph.add_path(scaffold.to_string(), first_last);
         }
     }
 
     // Process link lines
     for line in link_lines {
         let fields: Vec<&str> = line.split('\t').collect();
-        if let [_, seg1, _, seg2, _, _] = &fields[..] {
-            graph.add_overlap(seg1.to_string(), seg2.to_string());
+        if let [_, seg1, dir1, seg2, dir2, _] = &fields[..] {
+            graph.add_overlap(format!("{}{}", seg1, dir1), format!("{}{}", seg2, dir2));
         }
     }
     Ok(graph)
@@ -150,12 +152,11 @@ fn parse_gfa(file_path: &str) -> io::Result<GfaGraph> {
 
 fn write_combined_fasta(
     sample: &String,
-    bin_scaffolds: &HashSet<String>,
-    connected_scaffolds: &HashSet<String>,
+    enriched_scaffolds: &HashSet<String>,
     assembly_fasta: &str,
     output_fasta: PathBuf,
     create_new: bool,
-) -> io::Result<HashSet<String>> {
+) -> Result<(), Box<dyn std::error::Error>> {
 
     debug!("Entering write combined_fasta");
     let assembly_content = read_to_string(assembly_fasta)?;
@@ -171,10 +172,7 @@ fn write_combined_fasta(
 
     let mut output_file = io::BufWriter::new(output_file);
 
-    let mut enriched_scaffolds = bin_scaffolds.clone();
     debug!("Enriched scaffolds len:{}", enriched_scaffolds.len());
-
-    enriched_scaffolds.extend(connected_scaffolds.iter().cloned());
 
     let mut current_scaffold = String::new();
     let mut current_sequence = String::new();
@@ -184,7 +182,7 @@ fn write_combined_fasta(
         if line.starts_with(">") {
             if !is_first_scaffold {
                 if enriched_scaffolds.contains(&current_scaffold)
-                    && current_sequence.len() >= 300 {
+                    && current_sequence.len() >= 1000 {
                     writeln!(output_file, ">{}C{}", sample, current_scaffold)?;
                     writeln!(output_file, "{}", current_sequence)?;
                 }
@@ -205,15 +203,29 @@ fn write_combined_fasta(
     }
     
     if enriched_scaffolds.contains(&current_scaffold)
-        && current_sequence.len() >= 300 {
+        && current_sequence.len() >= 1000 {
         writeln!(output_file, ">{}C{}", sample, current_scaffold)?;
         writeln!(output_file, "{}", current_sequence)?;
     }
-
-    Ok(enriched_scaffolds)
+    Ok(())
 }
 
-fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
+pub fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
+    let content = read_to_string(fasta_file)?;
+    let mut scaffolds = HashSet::new();
+    for line in content.lines() {
+        if line.starts_with(">") {
+            let scaffold_name = line.trim_start_matches(">")
+                .split_whitespace()
+                .next()
+                .unwrap_or(line.trim_start_matches(">"));
+            scaffolds.insert(scaffold_name.to_string());
+        }
+    }
+    Ok(scaffolds)
+}
+
+pub fn read_fasta_wosid(fasta_file: &str) -> io::Result<HashSet<String>> {
     let content = read_to_string(fasta_file)?;
     let mut scaffolds = HashSet::new();
     for line in content.lines() {
@@ -231,6 +243,7 @@ fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
     Ok(scaffolds)
 }
 
+
 // TODO: get enriched scaffolds from the source samples but reads obtain from all samples
 pub fn parse_gfa_fastq(
     sample: &String,
@@ -245,55 +258,46 @@ pub fn parse_gfa_fastq(
     debug!("obtained graph for {:?}", gfa_file);
 
     // eg: bin_scaffolds = {k141_1, k141_2, ..., k141_N}
-    let bin_scaffolds = read_fasta(bin_fasta)?;
+    let bin_scaffolds = read_fasta_wosid(bin_fasta)?;
     debug!("bin scaffold {:?}", bin_scaffolds);
 
-    // Find connected components of scaffolds
-    // eg: components = Vec<{k141_1, k141_4}, {k141_6, k141_12, k141_564},...>
-    let components = graph.connected_components();
+    // Get only directly linked neighbors to bin contigs
+    let mut connected_scaffolds = bin_scaffolds.clone();
 
-    let mut connected_scaffolds = HashSet::new();
-    for component in &components {
-        for scaffold in component {
-            if bin_scaffolds.contains(scaffold) {
-                connected_scaffolds.extend(component.iter().cloned());
-                break;
-            }
+    for node in &bin_scaffolds {
+        if let Some(neighbors) = graph.scaffold_graph.get(node) {
+            connected_scaffolds.extend(neighbors.iter().cloned()); // Add neighbors to the result
         }
     }
-
     debug!("obtained connected components and assembly fasta is {:?}", assembly_fasta);
     debug!("output fasta {:?}", utility::get_output_binname(outputbin.to_str().expect("")));
     // eg: output_fasta = <bindir>/0_combined/S1_enriched.fasta
-    let enriched_scaffolds = 
-        write_combined_fasta(
+    let _ = write_combined_fasta(
             sample,
-            &bin_scaffolds,
-            &connected_scaffolds, 
+            &connected_scaffolds,
             assembly_fasta,
             utility::get_output_binname(outputbin.to_str().expect("")),
             create_new
-        )?;
-
+        );
     // eg: output_fasta = <bindir>/bin_1_connected_components
-    let binding = utility::get_outputname_connected(outputbin.to_str().expect(""));
-    let output_file = binding
-        .to_str()
-        .expect("Failed to convert PathBuf to &str");
+    // let binding = utility::get_outputname_connected(outputbin.to_str().expect(""));
+    // let output_file = binding
+    //     .to_str()
+    //     .expect("Failed to convert PathBuf to &str");
 
-    let mut output_cc = if create_new {
-        File::create(&utility::get_outputname_connected(output_file))? // Create a new file if flag is true
-    } else {
-        OpenOptions::new()
-            .create(true)
-            .append(true)  // Open in append mode if flag is false
-            .open(&utility::get_outputname_connected(output_file))?
-    };
+    // let mut output_cc = if create_new {
+    //     File::create(&utility::get_outputname_connected(output_file))? // Create a new file if flag is true
+    // } else {
+    //     OpenOptions::new()
+    //         .create(true)
+    //         .append(true)  // Open in append mode if flag is false
+    //         .open(&utility::get_outputname_connected(output_file))?
+    // };
 
-    writeln!(output_cc, "Connected components:")?;
-    for (i, component) in components.iter().enumerate() {
-        writeln!(output_cc, "Component {}: {:?}", i + 1, component)?;
-    }
-    debug!("connected components are written to {:?}", output_cc);
-    Ok(enriched_scaffolds)
+    // writeln!(output_cc, "Connected components:")?;
+    // for (i, component) in components.iter().enumerate() {
+    //     writeln!(output_cc, "Component {}: {:?}", i + 1, component)?;
+    // }
+    // debug!("connected components are written to {:?}", output_cc);
+    Ok(connected_scaffolds)
 }
