@@ -1,8 +1,8 @@
 use csv::ReaderBuilder;
 use bio::io::fasta;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::fs::{self, File};
+use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
 use petgraph::graph::Graph;
 use petgraph::visit::Dfs;
@@ -106,28 +106,34 @@ pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-pub fn get_gfa_file_names(dir: &Path) -> Vec<String> {
-    // Try to read the directory entries
-    match fs::read_dir(dir) {
-        Ok(entries) => {
-            // Filter and collect file names with .gfa extension
-            entries
-            .filter_map(|entry| entry.ok()) // Ignore errors when reading entries
-            .filter(|entry| {
-            entry
-            .path()
-            .extension()
-            .and_then(|ext| ext.to_str()) // Get the extension as a string
-            == Some("gfa")               // Compare the extension with "gfa"
-            })
-            .filter_map(|entry| {
-                // Extract just the file name without the extension
-            entry.path().file_stem().and_then(|name| name.to_str().map(|s| s.to_string()))
-            })
-            .collect() // Collect the file names into a Vec<String>
+pub fn get_sample_names(bindir: &Path) -> io::Result<Vec<String>> {
+    let mut sample_list = Vec::new();
+    for entry in fs::read_dir(bindir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Only process regular files
+        if path.is_file() {
+            // Open the file and read the first line
+            let file = fs::File::open(&path)?;
+            let mut reader = io::BufReader::new(file);
+            let mut first_line = String::new();
+
+            if reader.read_line(&mut first_line)? > 0 {
+                // Remove '>' and split by 'C'
+                let processed = first_line.trim()
+                    .trim_start_matches('>')  // Remove '>'
+                    .split('C')               // Split by 'C'
+                    .next()                   // Take first part
+                    .map(|s| s.to_string());  // Convert to String
+
+                if let Some(value) = processed {
+                    sample_list.push(value);
+                }
+            }
         }
-        Err(_) => Vec::new(), // Return empty vector if directory reading fails
     }
+    Ok(sample_list)
 }
 
 
@@ -280,35 +286,6 @@ pub fn parse_bins_quality(
     Ok(bin_qualities)
 }
 
-pub fn combine_fastabins(
-    inputdir: &Path,
-    bin_samplenames: &HashSet<String>,
-    combined_bins: &Path,
-    format: &String,
-) -> io::Result<()> {
-    // Combine bins fasta into a single file
-    let mut output_writer = File::create(
-        combined_bins
-        .join(format!("combined.fasta")))?;
-    for bin_samplename in bin_samplenames {
-        let bin_file_path = inputdir.join(format!("{}.{}", bin_samplename, format));
-        debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path, combined_bins);
-        if bin_file_path.exists() {
-            let bin_file = File::open(&bin_file_path)?;
-            let reader = fasta::Reader::new(bin_file);
-
-            for record in reader.records() {
-                let record = record?;  // Get the record
-                writeln!(output_writer, ">{}", format!("{}",record.id()))?;
-                writeln!(output_writer, "{}", String::from_utf8_lossy(record.seq()))?;
-            }
-        } else {
-            error!("Warning: File for bin '{}' does not exist at {:?}", bin_samplename, bin_file_path);
-        }
-    }
-    Ok(())
-}
-
 pub fn calc_ani(
     bins: &PathBuf,
     bin_qualities: &HashMap<String, BinQuality>,
@@ -394,63 +371,63 @@ pub fn calc_ani(
    Ok(graph)
 }
 
-/// Find connected components that are cliques (fully connected subgraphs).
-pub fn find_cliques(graph: &Graph<String, (), Undirected>) -> Vec<HashSet<String>> {
-    let mut visited = HashSet::new();
-    let mut clique_components = Vec::new();
+// /// Find connected components that are cliques (fully connected subgraphs).
+// pub fn find_cliques(graph: &Graph<String, (), Undirected>) -> Vec<HashSet<String>> {
+//     let mut visited = HashSet::new();
+//     let mut clique_components = Vec::new();
 
-    for node_index in graph.node_indices() {
-        if !visited.contains(&node_index) {
-            let mut component = HashSet::new();
-            let mut queue = VecDeque::new();
-            queue.push_back(node_index);
+//     for node_index in graph.node_indices() {
+//         if !visited.contains(&node_index) {
+//             let mut component = HashSet::new();
+//             let mut queue = VecDeque::new();
+//             queue.push_back(node_index);
 
-            while let Some(nx) = queue.pop_front() {
-                if visited.insert(nx) {
-                    let node_name = graph[nx].clone();
-                    component.insert(node_name.clone());
+//             while let Some(nx) = queue.pop_front() {
+//                 if visited.insert(nx) {
+//                     let node_name = graph[nx].clone();
+//                     component.insert(node_name.clone());
 
-                    // Add neighbors to queue
-                    for neighbor in graph.neighbors(nx) {
-                        if !visited.contains(&neighbor) {
-                            queue.push_back(neighbor);
-                        }
-                    }
-                }
-            }
+//                     // Add neighbors to queue
+//                     for neighbor in graph.neighbors(nx) {
+//                         if !visited.contains(&neighbor) {
+//                             queue.push_back(neighbor);
+//                         }
+//                     }
+//                 }
+//             }
 
-            // Check if the component is a clique (fully connected subgraph)
-            if is_clique(graph, &component) {
-                clique_components.push(component);
-            } else {
-                for node in component {
-                    debug!("Nodes in a non clique component {}", node);
-                    clique_components.push(HashSet::from([node]));
-                }
-            }
-        }
-    }
+//             // Check if the component is a clique (fully connected subgraph)
+//             if is_clique(graph, &component) {
+//                 clique_components.push(component);
+//             } else {
+//                 for node in component {
+//                     debug!("Nodes in a non clique component {}", node);
+//                     clique_components.push(HashSet::from([node]));
+//                 }
+//             }
+//         }
+//     }
 
-    clique_components
-}
+//     clique_components
+// }
 
-/// Check if a given set of nodes form a clique (fully connected subgraph).
-fn is_clique(graph: &Graph<String, (), Undirected>, component: &HashSet<String>) -> bool {
-    let nodes: Vec<_> = component.iter().collect();
+// /// Check if a given set of nodes form a clique (fully connected subgraph).
+// fn is_clique(graph: &Graph<String, (), Undirected>, component: &HashSet<String>) -> bool {
+//     let nodes: Vec<_> = component.iter().collect();
     
-    // Every pair of nodes in the component should be directly connected
-    for (i, node1) in nodes.iter().enumerate() {
-        for node2 in nodes.iter().skip(i + 1) {
-            let index1 = graph.node_indices().find(|&idx| &graph[idx] == *node1).unwrap();
-            let index2 = graph.node_indices().find(|&idx| &graph[idx] == *node2).unwrap();
+//     // Every pair of nodes in the component should be directly connected
+//     for (i, node1) in nodes.iter().enumerate() {
+//         for node2 in nodes.iter().skip(i + 1) {
+//             let index1 = graph.node_indices().find(|&idx| &graph[idx] == *node1).unwrap();
+//             let index2 = graph.node_indices().find(|&idx| &graph[idx] == *node2).unwrap();
 
-            if !graph.contains_edge(index1, index2) {
-                return false; // Not a clique
-            }
-        }
-    }
-    true
-}
+//             if !graph.contains_edge(index1, index2) {
+//                 return false; // Not a clique
+//             }
+//         }
+//     }
+//     true
+// }
 
 pub fn get_connected_samples(
     graph: &Graph<String, (), Undirected>
@@ -539,6 +516,51 @@ pub fn check_high_quality_bin(
     }
     false
 }
+
+pub fn combine_fastabins(
+    inputdir: &Path,
+    bin_samplenames: &HashSet<String>,
+    combined_bins: &Path,
+    format: &String,
+) -> io::Result<()> {
+    // Combine bins fasta into a single file
+    let mut output_writer = File::create(
+        combined_bins
+        .join(format!("combined.fasta")))?;
+    for bin_samplename in bin_samplenames {
+        let bin_file_path = inputdir.join(format!("{}.{}", bin_samplename, format));
+        debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path, combined_bins);
+        if bin_file_path.exists() {
+            let bin_file = File::open(&bin_file_path)?;
+            let reader = fasta::Reader::new(bin_file);
+
+            for record in reader.records() {
+                let record = record?;  // Get the record
+                writeln!(output_writer, ">{}", format!("{}",record.id()))?;
+                writeln!(output_writer, "{}", String::from_utf8_lossy(record.seq()))?;
+            }
+        } else {
+            error!("Warning: File for bin '{}' does not exist at {:?}", bin_samplename, bin_file_path);
+        }
+    }
+    Ok(())
+}
+
+pub fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
+    let content = read_to_string(fasta_file)?;
+    let mut scaffolds = HashSet::new();
+    for line in content.lines() {
+        if line.starts_with(">") {
+            let scaffold_name = line.trim_start_matches(">")
+                .split_whitespace()
+                .next()
+                .unwrap_or(line.trim_start_matches(">"));
+            scaffolds.insert(scaffold_name.to_string());
+        }
+    }
+    Ok(scaffolds)
+}
+
     // select_highcompletebin(
     //     comp,
     //     &comp_binqualities,
@@ -709,7 +731,7 @@ pub fn run_reassembly(
                 );
             }
             Err(e) => {
-                error!("Error: Failed to execute SPAdes command - {}", e);
+                error!("Error: Failed to execute MEGAHIT command - {}", e);
             }
         }
     }

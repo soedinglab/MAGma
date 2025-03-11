@@ -17,14 +17,16 @@ mod utility;
 // use index::indexfastqreads;
 use readfetch::fetch_fastqreads;
 
-fn validate_paths(cli: &Cli) -> io::Result<(PathBuf, Option<PathBuf>, PathBuf, PathBuf, PathBuf)> {
+fn validate_paths(cli: &Cli) -> io::Result<(PathBuf, Option<PathBuf>, Option<PathBuf>, PathBuf, PathBuf)> {
     let bindir = utility::validate_path(Some(&cli.bindir), "bindir", &cli.format);
-    let gfadir = cli.gfadir.as_ref().map(|p| utility::validate_path(Some(p), "gfadir", ".gfa").to_path_buf());
-    let assemblydir = utility::validate_path(Some(&cli.assemblydir), "assemblydir", ".fasta");
+    let gfadir = cli.gfadir.as_ref().map(|p| utility::validate_path(
+        Some(p), "gfadir", ".gfa").to_path_buf());
+    let assemblydir = cli.assemblydir.as_ref().map(|p| utility::validate_path(
+        Some(p), "assemblydir", ".fasta").to_path_buf());
     let mapdir = utility::validate_path(Some(&cli.mapdir), "mapdir", "_mapids");
     let readdir = utility::validate_path(Some(&cli.readdir), "readdir", ".fastq");
 
-    Ok((bindir.to_path_buf(), gfadir, assemblydir.to_path_buf(), mapdir.to_path_buf(), readdir.to_path_buf()))
+    Ok((bindir.to_path_buf(), gfadir, assemblydir, mapdir.to_path_buf(), readdir.to_path_buf()))
 }
 
 #[derive(Parser)]
@@ -35,7 +37,7 @@ struct Cli {
     bindir: PathBuf,
 
     /// Average Nucleotide Identity cutoff
-    #[arg(short = 'i', long = "ani", default_value_t = 99.0, help = "ANI for clustering bins")]
+    #[arg(short = 'i', long = "ani", default_value_t = 99.0, help = "ANI for clustering bins (%)")]
     ani: f32,
 
     /// Directory containing gfa files for metagenomic samples (in gfa1.2 format)
@@ -44,7 +46,7 @@ struct Cli {
 
     /// Directory containing sample-wise assembly contigs file in fasta format
     #[arg(short = 'a', long = "assemblydir", help = "Directory containing assembly contigs")]
-    assemblydir: PathBuf,
+    assemblydir: Option<PathBuf>,
 
     /// Directory containing mapids files derived from alignment sam/bam files
     #[arg(short = 'm', long = "mapdir", help = "Directory containing mapids files")]
@@ -62,9 +64,9 @@ struct Cli {
     #[arg(short = 't', long = "threads", default_value_t = 8, help = "Number of threads to use")]
     threads: usize,
 
-    /// Minimum overlap length
-    #[arg(short = 'l', long = "min_overlaplen", default_value_t = 1000, help = "Minimum overlap length")]
-    min_overlaplen: usize,
+    // /// Minimum overlap length
+    // #[arg(short = 'l', long = "min_overlaplen", default_value_t = 1000, help = "Minimum overlap length")]
+    // min_overlaplen: usize,
 
     /// First split bins before merging (if provided, set to true)
     #[arg(long = "split", help = "Split clusters into sample-wise bins before processing")]
@@ -85,7 +87,6 @@ fn main() -> io::Result<()> {
     let ani_cutoff = cli.ani;
     let format = cli.format;
     let threads = cli.threads;
-    let min_overlaplen = cli.min_overlaplen;
     let split = cli.split;
     let assembler: String = cli.assembler;
     let parentdir = bindir.parent().map(PathBuf::from).unwrap_or_else(|| bindir.clone());
@@ -99,7 +100,6 @@ fn main() -> io::Result<()> {
     println!("  readdir: {:?}", readdir);
     println!("  format: {}", format);
     println!("  threads: {}", threads);
-    println!("  min_overlaplen: {}", min_overlaplen);
     println!("  assembler choice: {}", assembler);
 
     if assembler != "spades" && assembler != "megahit" {
@@ -113,6 +113,12 @@ fn main() -> io::Result<()> {
     } else {
         gfapath = gfadir.unwrap();
     }
+
+    let mut assemblypath: PathBuf = PathBuf::new();
+    if !assemblydir.is_none() {
+        assemblypath = assemblydir.unwrap();
+    }
+
     let is_paired: bool = utility::check_paired_reads(&readdir);
     if is_paired {
         info!("Detected paired end \
@@ -135,10 +141,7 @@ fn main() -> io::Result<()> {
             Please provide the correct format argument.",
         ));
     }
-
-    let sample_list = utility::get_gfa_file_names(&assemblydir);
-    info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
-    
+   
     // Final merge bins directory
     // eg: resultspath = <bindir>/mergedbins/
     let resultdir: PathBuf = parentdir
@@ -155,6 +158,7 @@ fn main() -> io::Result<()> {
         .build()
         .expect("Failed to build thread pool");
 
+    // Split bin by sample id
     if split {
         // Create a directory to store sample-wise bins
         let samplewisebinspath: PathBuf = parentdir
@@ -188,6 +192,11 @@ fn main() -> io::Result<()> {
         bindir = samplewisebinspath;
         debug!("splitting bins by sample {:?} is completed", bindir);
     }
+
+    // Get sample list
+    let sample_list = utility::get_sample_names(&bindir)?;
+    info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
+
     // Obtain quality of bins
     // eg: checkm2_outputpath = <bindir>/checkm2_results/
     let checkm2_outputpath: PathBuf = bindir
@@ -251,7 +260,7 @@ fn main() -> io::Result<()> {
                 &bindir,
                 &gfapath,
                 gfa_flag,
-                &assemblydir,
+                &assemblypath,
                 &mapdir,
                 &readdir,
                 &resultdir,
@@ -396,7 +405,7 @@ fn process_components(
     debug!("input to fetch combined contig ids {}", &selected_binset_path.join("combined.fasta").to_string_lossy());
     let mut all_enriched_scaffolds = HashSet::new();
     if !gfa_flag {
-        all_enriched_scaffolds = gfaparser::read_fasta(
+        all_enriched_scaffolds = utility::read_fasta(
             &selected_binset_path.join("combined.fasta").to_string_lossy()
         )?;
     } else {

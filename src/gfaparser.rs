@@ -47,32 +47,6 @@ impl GfaGraph {
             }
         }
     }
-
-    // Finds connected components of scaffolds
-    fn connected_components(&self) -> Vec<HashSet<String>> {
-        let mut visited = HashSet::new();
-        let mut components = Vec::new();
-    
-        for scaffold in self.scaffold_graph.keys() {
-            if visited.contains(scaffold) {
-                continue; // Skip already visited scaffolds
-            }
-            let mut stack = vec![scaffold.clone()];
-            let mut component = HashSet::new();
-
-            while let Some(current) = stack.pop() {
-                if !visited.insert(current.clone()) {
-                    continue; // Skip if already visited
-                }
-                component.insert(current.clone());
-                if let Some(neighbors) = self.scaffold_graph.get(&current) {
-                    stack.extend(neighbors.iter().filter(|n| !visited.contains(*n)).cloned());
-                }
-            }
-            components.push(component);
-        }
-        components
-    }
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -208,21 +182,6 @@ fn write_combined_fasta(
         writeln!(output_file, "{}", current_sequence)?;
     }
     Ok(())
-}
-
-pub fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
-    let content = read_to_string(fasta_file)?;
-    let mut scaffolds = HashSet::new();
-    for line in content.lines() {
-        if line.starts_with(">") {
-            let scaffold_name = line.trim_start_matches(">")
-                .split_whitespace()
-                .next()
-                .unwrap_or(line.trim_start_matches(">"));
-            scaffolds.insert(scaffold_name.to_string());
-        }
-    }
-    Ok(scaffolds)
 }
 
 pub fn read_fasta_wosid(fasta_file: &str) -> io::Result<HashSet<String>> {

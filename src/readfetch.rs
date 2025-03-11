@@ -134,28 +134,3 @@ pub fn fetch_fastqreads(
     }
     Ok(())
 }
-
-// pub fn fetch_fastqreads(
-//     enriched_scaffolds: &HashSet<String>,
-//     mapids: &str,
-//     read_fastq: &str,
-//     read_fastq2: Option<&str>,
-//     outputbin: PathBuf,
-//     is_paired: bool,
-//     create_new: bool,
-// ) {
-//     let output_fastq = PathBuf::from(format!("{}",
-//         utility::get_output_binname(outputbin.to_str().expect(""))
-//         .to_str()
-//         .expect("Invalid UTF-8 in file path")
-//         .replace(".fasta", ".fastq")));
-//     debug!("Writing reads for {:?}", output_fastq);
-//     let _ = write_selected_reads(
-//         &read_fastq,
-//         read_fastq2,
-//         &enriched_scaffolds,
-//         mapids,
-//         output_fastq,
-//         is_paired,
-//         create_new);
-// }
