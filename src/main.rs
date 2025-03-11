@@ -39,14 +39,6 @@ struct Cli {
     #[arg(short = 'i', long = "ani", default_value_t = 99.0, help = "ANI for clustering bins (%)")]
     ani: f32,
 
-    /// Directory containing gfa files for metagenomic samples (in gfa1.2 format)
-    #[arg(short = 'g', long = "gfadir", help = "Directory containing gfa files")]
-    gfadir: Option<PathBuf>,
-
-    /// Directory containing sample-wise assembly contigs file in fasta format
-    #[arg(short = 'a', long = "assemblydir", help = "Directory containing assembly contigs")]
-    assemblydir: Option<PathBuf>,
-
     /// Directory containing mapids files derived from alignment sam/bam files
     #[arg(short = 'm', long = "mapdir", help = "Directory containing mapids files")]
     mapdir: PathBuf,
@@ -63,13 +55,21 @@ struct Cli {
     #[arg(short = 't', long = "threads", default_value_t = 8, help = "Number of threads to use")]
     threads: usize,
 
-    // /// Minimum overlap length
-    // #[arg(short = 'l', long = "min_overlaplen", default_value_t = 1000, help = "Minimum overlap length")]
-    // min_overlaplen: usize,
-
     /// First split bins before merging (if provided, set to true)
     #[arg(long = "split", help = "Split clusters into sample-wise bins before processing")]
     split: bool,
+    
+    /// Directory containing gfa files for metagenomic samples (in gfa1.2 format)
+    #[arg(short = 'g', long = "gfadir", help = "Directory containing gfa files")]
+    gfadir: Option<PathBuf>,
+
+    /// Directory containing sample-wise assembly contigs file in fasta format
+    #[arg(short = 'a', long = "assemblydir", help = "Directory containing assembly contigs")]
+    assemblydir: Option<PathBuf>,
+
+    // /// Minimum overlap length
+    // #[arg(short = 'l', long = "min_overlaplen", default_value_t = 1000, help = "Minimum overlap length")]
+    // min_overlaplen: usize,
 
     /// Assembler choice
     #[arg(long = "assembler", default_value = "spades", help = "assembler choice for reassembly step (spades|megahit)")]
