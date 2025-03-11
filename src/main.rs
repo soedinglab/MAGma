@@ -8,7 +8,6 @@ use gfaparser::parse_gfa_fastq;
 use rayon::prelude::*;
 use rayon::{current_num_threads, ThreadPoolBuilder};
 use log::{debug, error, info};
-use num_cpus;
 
 mod gfaparser;
 mod readfetch;
@@ -207,7 +206,7 @@ fn main() -> io::Result<()> {
     let checkm2_qualities = utility::assess_bins(
         &bindir,
         &checkm2_outputpath,
-        num_cpus::get()-2,
+        threads,
         &format)?;
 
     let bin_qualities = match utility::parse_bins_quality(
