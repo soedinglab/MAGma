@@ -292,7 +292,7 @@ fn process_components(
     mapdir: &PathBuf,
     readdir: &PathBuf,
     resultdir: &PathBuf,
-    sample_list: Vec<String>,
+    sample_list: HashSet<String>,
     format: &String,
     bin_qualities: HashMap<String, utility::BinQuality>,
     is_paired: bool,

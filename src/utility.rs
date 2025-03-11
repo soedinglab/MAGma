@@ -106,8 +106,8 @@ pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-pub fn get_sample_names(bindir: &Path) -> io::Result<Vec<String>> {
-    let mut sample_list = Vec::new();
+pub fn get_sample_names(bindir: &Path) -> io::Result<HashSet<String>> {
+    let mut sample_list = HashSet::new();
     for entry in fs::read_dir(bindir)? {
         let entry = entry?;
         let path = entry.path();
@@ -128,7 +128,7 @@ pub fn get_sample_names(bindir: &Path) -> io::Result<Vec<String>> {
                     .map(|s| s.to_string());  // Convert to String
 
                 if let Some(value) = processed {
-                    sample_list.push(value);
+                    sample_list.insert(value);
                 }
             }
         }
