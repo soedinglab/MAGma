@@ -32,11 +32,11 @@ Mapid files can be generated using aligner2counts (https://github.com/soedinglab
 
 File name: `<sampleid>_mapids`
 
-        read1_id    contig1_id
-        read2_id    contig2_id
-        read2_id    contig4_id
-        read3_id    contig2_id
-        read4_id    contig3_id
-        read4_id    contig4_id
+read1_id    contig1_id
+read2_id    contig2_id
+read2_id    contig4_id
+read3_id    contig2_id
+read4_id    contig3_id
+read4_id    contig4_id
 
 If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
