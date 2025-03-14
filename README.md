@@ -29,13 +29,14 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
     -V, --version
 
 Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
-Example: 
-    File name: <sampleid>_mapids
-    read1_id\tcontig1_id
-    read2_id\tcontig2_id
-    read2_id\tcontig4_id
-    read3_id\tcontig2_id
-    read4_id\tcontig3_id
-    read4_id\tcontig4_id
+
+File name: `<sampleid>_mapids`
+
+        read1_id    contig1_id
+        read2_id    contig2_id
+        read2_id    contig4_id
+        read3_id    contig2_id
+        read4_id    contig3_id
+        read4_id    contig4_id
 
 If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
