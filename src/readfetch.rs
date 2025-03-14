@@ -6,6 +6,68 @@ use std::io::{self, BufRead, Write};
 use crate::utility;
 use log::{debug, error};
 
+pub fn fetch_fastqreads(
+    enriched_scaffolds: &HashSet<String>,
+    mapids: &str,
+    fastq_files: Vec<String>,
+    outputbin: PathBuf,
+    is_paired: bool
+) -> Result<(), Box<dyn std::error::Error>> {
+
+    let output_fastq: Vec<String> = if is_paired {
+            let read_file1 = PathBuf::from(format!("{}",
+                utility::get_output_binname(outputbin.to_str().expect(""))
+                .to_str()
+                .expect("Invalid UTF-8 in file path")
+                .replace(".fasta", "_1.fastq")));
+            let read_file2 = PathBuf::from(format!("{}",
+                utility::get_output_binname(outputbin.to_str().expect(""))
+                .to_str()
+                .expect("Invalid UTF-8 in file path")
+                .replace(".fasta", "_2.fastq")));
+    
+            vec![
+                read_file1.to_str().expect("Failed to convert PathBuf to &str").to_string(),
+                read_file2.to_str().expect("Failed to convert PathBuf to &str").to_string()
+            ]
+        } else {
+            let read_file = PathBuf::from(format!("{}",
+                utility::get_output_binname(outputbin.to_str().expect(""))
+                .to_str()
+                .expect("Invalid UTF-8 in file path")
+                .replace(".fasta", ".fastq")));
+            
+            vec![
+                read_file.to_str().expect("Failed to convert PathBuf to &str").to_string()
+            ]
+        };
+
+    debug!("Writing reads for {:?}", output_fastq);
+    let _ = write_selected_reads(
+        fastq_files,
+        &enriched_scaffolds,
+        mapids,
+        &output_fastq,
+        is_paired);
+
+    let file_metadata = std::fs::metadata(&output_fastq[0]).map_err(|e| {
+        eprintln!("Error accessing {:?}: {}", output_fastq, e);
+        Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to access {:?}", output_fastq),
+        )) as Box<dyn std::error::Error>
+    })?;
+
+    if file_metadata.len() == 0 {
+        eprintln!("Error: The output file {:?} is empty", output_fastq[0]);
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("No reads were written to {:?}", output_fastq[0]),
+        )));
+    }
+    Ok(())
+}
+
 fn write_selected_reads(
     fastq_files: Vec<String>,
     enriched_scaffolds: &HashSet<String>,
@@ -69,68 +131,5 @@ fn write_selected_reads(
         process_seqtk(&fastq_files[1], outfile2)?;
     }
 
-    Ok(())
-}
-
-
-pub fn fetch_fastqreads(
-    enriched_scaffolds: &HashSet<String>,
-    mapids: &str,
-    fastq_files: Vec<String>,
-    outputbin: PathBuf,
-    is_paired: bool
-) -> Result<(), Box<dyn std::error::Error>> {
-
-    let output_fastq: Vec<String> = if is_paired {
-            let read_file1 = PathBuf::from(format!("{}",
-                utility::get_output_binname(outputbin.to_str().expect(""))
-                .to_str()
-                .expect("Invalid UTF-8 in file path")
-                .replace(".fasta", "_1.fastq")));
-            let read_file2 = PathBuf::from(format!("{}",
-                utility::get_output_binname(outputbin.to_str().expect(""))
-                .to_str()
-                .expect("Invalid UTF-8 in file path")
-                .replace(".fasta", "_2.fastq")));
-    
-            vec![
-                read_file1.to_str().expect("Failed to convert PathBuf to &str").to_string(),
-                read_file2.to_str().expect("Failed to convert PathBuf to &str").to_string()
-            ]
-        } else {
-            let read_file = PathBuf::from(format!("{}",
-                utility::get_output_binname(outputbin.to_str().expect(""))
-                .to_str()
-                .expect("Invalid UTF-8 in file path")
-                .replace(".fasta", ".fastq")));
-            
-            vec![
-                read_file.to_str().expect("Failed to convert PathBuf to &str").to_string()
-            ]
-        };
-
-    debug!("Writing reads for {:?}", output_fastq);
-    let _ = write_selected_reads(
-        fastq_files,
-        &enriched_scaffolds,
-        mapids,
-        &output_fastq,
-        is_paired);
-
-    let file_metadata = std::fs::metadata(&output_fastq[0]).map_err(|e| {
-        eprintln!("Error accessing {:?}: {}", output_fastq, e);
-        Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Failed to access {:?}", output_fastq),
-        )) as Box<dyn std::error::Error>
-    })?;
-
-    if file_metadata.len() == 0 {
-        eprintln!("Error: The output file {:?} is empty", output_fastq[0]);
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("No reads were written to {:?}", output_fastq[0]),
-        )));
-    }
     Ok(())
 }

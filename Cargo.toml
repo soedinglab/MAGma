@@ -1,8 +1,9 @@
 [package]
-name="mass"
+name="magma"
 version="0.1.0"
-authors=["Yazhini <yazhini@mpinat.mpg.de>", "Johannes Soeding <soeding@mpinat.mpg.de>"]
+authors=["Yazhini A <yazhini@mpinat.mpg.de>", "Johannes Soeding <soeding@mpinat.mpg.de>"]
 edition = "2021"
+description = "MAGma: A tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through Merging and reAssembly."
 
 [dependencies]
 nalgebra = "0.33"

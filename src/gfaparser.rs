@@ -260,3 +260,14 @@ pub fn parse_gfa_fastq(
     // debug!("connected components are written to {:?}", output_cc);
     Ok(connected_scaffolds)
 }
+
+// pub fn get_outputname_connected(input_file: &str) -> PathBuf {
+//     let path = Path::new(input_file);
+    
+//     let output_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    
+//     let filename = path.file_stem()
+//         .map(|stem| stem.to_str().unwrap_or("default"))
+//         .unwrap_or("default");
+//     output_dir.join(format!("{}_connected_scaffolds", filename))
+// }
