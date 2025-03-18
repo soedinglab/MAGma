@@ -31,8 +31,8 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
 
 # Example
 
-        magma -b <bindir> -m <mapid_dir> -r <readdir> -f fasta -t 24
-        magma -b <bindir> -m <mapid_dir> -r <readdir> -f fasta -t 24 --split // if bins are not already split by sample id 
+    magma -b <bindir> -m <mapid_dir> -r <readdir> -f fasta -t 24
+    magma -b <bindir> -m <mapid_dir> -r <readdir> -f fasta -t 24 --split // if bins are not already split by sample id 
 
 
 ### Notes
