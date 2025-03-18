@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::fs::{self,File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{exit, Command as ProcessCommand, Stdio};
-use log::{info, error};
+use std::sync::{Arc, RwLock};
+use log::error;
 use crate::assess::{assess_bins, parse_bins_quality, select_highcompletebin, BinQuality};
 
 pub fn run_reassembly(
@@ -18,7 +19,7 @@ pub fn run_reassembly(
     id: usize,
     bindir: &PathBuf,
     component: HashSet<String>,
-    bin_qualities: HashMap<String, BinQuality>,
+    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
     completeness_cutoff: f64,
     contamination_cutoff: f64
 ) {
@@ -49,7 +50,6 @@ pub fn run_reassembly(
     
         match output.status() {
             Ok(status) if status.success() => {
-                info!("SPAdes completed successfully for {:?}", id);
                 let _ = filterscaffold(&outputdir.join("scaffolds.fasta"));
                 let merged_checkm2_output = match assess_bins(
                     &outputdir.join("scaffolds_filtered.fasta"),
@@ -58,7 +58,7 @@ pub fn run_reassembly(
                     &"fasta"){
                         Ok(path) => path,
                         Err(e) => {
-                            eprintln!("Error running assess_bins: {}", e);
+                            error!("Error running assess_bins: {}", e);
                             return;                        }
                     };
                 let mergedbin_quality = parse_bins_quality(
@@ -69,12 +69,25 @@ pub fn run_reassembly(
                         // Assuming there's only one key-value pair in the HashMap
                         if let Some((_, bin_quality)) = bin_quality_map.into_iter().next() {
                             if bin_quality.contamination < contamination_cutoff && bin_quality.completeness >= completeness_cutoff {
-                                let _ = fs::rename(outputdir.join("scaffolds_filtered.fasta"), 
-                                resultdir.join(format!("{}_merged.fasta", id.to_string())));
+                                let _ = fs::rename(
+                                outputdir.join("scaffolds_filtered.fasta"), 
+                                resultdir.join(format!("{}_merged.fasta", id)));
+
+                                let mut qualities = bin_qualities
+                                    .write()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                                qualities.insert(
+                                    format!("{}_merged", id),
+                                    BinQuality {
+                                        completeness: bin_quality.completeness,
+                                        contamination: bin_quality.contamination,
+                                    }
+                                );
+
                             } else {
                                 let _ = select_highcompletebin(
                                     &component,
-                                    &bin_qualities,
+                                    bin_qualities,
                                     &bindir,
                                     &resultdir,
                                     completeness_cutoff
@@ -83,7 +96,7 @@ pub fn run_reassembly(
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to parse bin qualities: {:?}", e);
+                        error!("Failed to parse bin qualities: {:?}", e);
                     }
                 }
             }
@@ -95,7 +108,7 @@ pub fn run_reassembly(
                     .map(|bin| bin.to_string_lossy().to_string()).unwrap());
                 let _ = select_highcompletebin(
                     &component,
-                    &bin_qualities,
+                    bin_qualities,
                     &bindir,
                     &resultdir,
                     completeness_cutoff
@@ -124,7 +137,6 @@ pub fn run_reassembly(
     
         match output.status() {
             Ok(status) if status.success() => {
-                info!("Megahit completed successfully for {:?}", id);
                 
                 let merged_checkm2_output = match assess_bins(
                     &outputdir.join("final.contigs.fa"),
@@ -133,7 +145,7 @@ pub fn run_reassembly(
                     &"fa"){
                         Ok(path) => path,
                         Err(e) => {
-                            eprintln!("Error running assess_bins: {}", e);
+                            error!("Error running assess_bins: {}", e);
                             return;                        }
                     };
                 let mergedbin_quality = parse_bins_quality(
@@ -144,8 +156,20 @@ pub fn run_reassembly(
                         // Assuming there's only one key-value pair in the HashMap
                         if let Some((_, bin_quality)) = bin_quality_map.into_iter().next() {
                             if bin_quality.contamination < contamination_cutoff && bin_quality.completeness >= completeness_cutoff {
-                                let _ = fs::rename(outputdir.join("final.contigs.fa"), 
-                                        resultdir.join(format!("{}_merged.fasta", id.to_string())));
+                                let _ = fs::rename(
+                                    outputdir.join("final.contigs.fa"), 
+                                    resultdir.join(format!("{}_merged.fasta", id)));
+                                let mut qualities = bin_qualities
+                                    .write()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                                qualities.insert(
+                                    format!("{}_merged", id),
+                                    BinQuality {
+                                        completeness: bin_quality.completeness,
+                                        contamination: bin_quality.contamination,
+                                    }
+                                );
+
                             } else {
                                 let _ = select_highcompletebin(
                                     &component,
@@ -158,7 +182,7 @@ pub fn run_reassembly(
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to parse bin qualities: {:?}", e);
+                        error!("Failed to parse bin qualities: {:?}", e);
                     }
                 }
 

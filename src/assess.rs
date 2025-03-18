@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::io::{self};
 use std::process::{Command as ProcessCommand, Stdio};
-use log::{debug, info, error};
+use std::sync::{Arc, RwLock};
+use log::error;
 
 #[derive(Clone)]
 pub struct BinQuality {
@@ -88,27 +89,32 @@ pub fn parse_bins_quality(
 
 pub fn select_highcompletebin(
     bin_samplenames: &HashSet<String>,
-    bin_qualities: &HashMap<String, BinQuality>,
+    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
     bindir: &PathBuf,
     outputpath: &PathBuf,
     completeness_cutoff: f64,
 ) -> io::Result<()> {
-    let highest_completebin = bin_samplenames
-        .iter()
-        .filter_map(|bin| bin_qualities.get(bin)
-        .map(|quality| (bin, quality.completeness)))
-        .max_by(|(_, completeness1), (_, completeness2)| {
-            completeness1.partial_cmp(completeness2)
-            .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .filter(|(_, max_completeness)| *max_completeness >= completeness_cutoff)
-        .map(|(bin, _)| bin.clone());
+    
+    let highest_completebin = {
+        let bin_qualities_guard = bin_qualities.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    
+        bin_samplenames
+            .iter()
+            .filter_map(|bin| bin_qualities_guard.get(bin)
+                .map(|quality| (bin, quality.completeness)))
+            .max_by(|(_, completeness1), (_, completeness2)| {
+                completeness1.partial_cmp(completeness2)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .filter(|(_, max_completeness)| *max_completeness >= completeness_cutoff)
+            .map(|(bin, _)| bin.to_string())
+    };
 
     if let Some(sample_id) = highest_completebin {
         let bin_path = bindir.join(format!("{}.fasta", sample_id));
-        debug!("Output path {:?}, Sample ID {:?}", outputpath, sample_id);
         
-        fs::copy(bin_path, outputpath.join(format!("{}.fasta", sample_id)))?;
+        fs::copy(bin_path, outputpath.join(format!("{}.fasta", sample_id))).ok();
     }
     Ok(())
 
@@ -116,20 +122,24 @@ pub fn select_highcompletebin(
 
 pub fn check_high_quality_bin(
     comp: &HashSet<String>,
-    bin_qualities: &HashMap<String, BinQuality>,
+    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
     bindir: &PathBuf,
     resultdir: &PathBuf,
-    id: usize,
     format: &String,
 ) -> bool {
-    let comp_binqualities: HashMap<String, BinQuality> = bin_qualities
-        .iter()
-        .filter(|(bin, _)| comp.contains(*bin))
-        .map(|(bin, quality)| (bin.to_string(), quality.clone()))
-        .collect();
 
+    let comp_binqualities: HashMap<String, BinQuality> = {
+        let qualities = bin_qualities.read()  // Shared read access
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        
+        qualities
+            .iter()
+            .filter(|(bin, _)| comp.contains(bin.as_str()))  // Compare as &str
+            .map(|(bin, q)| (bin.clone(), q.clone()))
+            .collect()
+    };
 
-    if let Some((binname, best_quality)) = comp_binqualities
+    if let Some((binname, _)) = comp_binqualities
         .iter()
         .filter(|(_, q)| q.completeness > 90.0)
         .max_by(|a, b| {a.1.completeness
@@ -139,15 +149,10 @@ pub fn check_high_quality_bin(
         })
 
     {
-        info!(
-            "Component {} has samplebin with highest completeness > 90: {} (Completeness: {})",
-            id.to_string(), binname, best_quality.completeness
-        );
         let bin_path = bindir.join(format!("{}.{}", binname, format));
         let final_path = resultdir.join(format!("{}.fasta", binname));
 
-        if let Err(e) = fs::copy(&bin_path, &final_path) {
-            debug!("Failed to save bin {}: {:?}", binname, e);
+        if let Err(_) = fs::copy(&bin_path, &final_path) {
             return false;
         }
         return true;

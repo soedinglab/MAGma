@@ -1,14 +1,16 @@
 use bio::io::fasta;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::io::Write;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::fs::{self, File};
+use std::fs::{remove_file, File};
 use std::io::{self, BufRead, BufReader};
+use std::sync::{Arc, Mutex, RwLock};
 use petgraph::graph::Graph;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Dfs;
 use petgraph::{Undirected, prelude};
-use std::process::{Command as ProcessCommand, Stdio};
+use std::process::Command as ProcessCommand;
 use log::{debug, error};
 use glob::glob;
 
@@ -16,7 +18,7 @@ use crate::assess::BinQuality;
 
 pub fn calc_ani(
     bins: &PathBuf,
-    bin_qualities: &HashMap<String, BinQuality>,
+    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
     format: &String,
     ani_cutoff: f64,
     contamination_cutoff: f64
@@ -32,47 +34,54 @@ pub fn calc_ani(
         error!("No fasta files found in {:?}", bins);
         return Err(io::Error::new(io::ErrorKind::NotFound, "No fasta files found"));
     }
-
-    let mut command = ProcessCommand::new("skani");
-    command.arg("triangle");
-    command.args(&bin_files);
-    command.arg("-E");
-
-    let output_file = File::create(&ani_output)?;
-    command.stdout(Stdio::from(output_file));
-    command.stderr(Stdio::inherit()); // Keep stderr visible
-
-    let status = command.status()?;
-    if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "skani triangle failed"));
-    }
     
-    let mut graph: Graph<String, (), Undirected> = Graph::default();
+    let _ = get_ani(bin_files, &ani_output);
+
     let mut bin_name_to_node: HashMap<String, prelude::NodeIndex> = HashMap::new();
     let file: File = File::open(ani_output.clone())?;
     let reader: BufReader<File> = io::BufReader::new(file);
 
-    // First, add nodes to the graph
-    for bin in bin_qualities.keys() {
+    let mut graph: Graph<String, (), Undirected> = Graph::default();
 
-        debug!("bin node {:?}", bin);
-        if !bin_qualities
-            .get(bin)
-            .map_or(false, |q| q.contamination < contamination_cutoff && q.completeness > 20.0)
-        {
+    let bin_ids: Vec<String> = {
+        let qualities = bin_qualities.read()
+            .unwrap_or_else(|poisoned| {
+                poisoned.into_inner()
+            });
+        qualities.keys().cloned().collect()
+    };
+    
+    for bin in bin_ids {
+        let should_add = {
+            let qualities = bin_qualities.read()
+                .unwrap_or_else(|poisoned| {
+                    poisoned.into_inner()
+                });
+            qualities.get(&bin)
+                .map_or(false, |q| q.contamination < contamination_cutoff && q.completeness > 20.0)
+        };
+    
+        if !should_add {
             continue;
         }
+    
         bin_name_to_node
-        .entry(bin.clone())
-        .or_insert_with(|| graph.add_node(bin.clone()));
+            .entry(bin.clone())
+            .or_insert_with(|| graph.add_node(bin.clone()));
     }
+    // let mut ani_details = HashMap::new();
+    let ani_details_tmp = Arc::new(Mutex::new(HashMap::<(String, String), f64>::new()));
 
-    let mut ani_details = HashMap::new();
-
-    // Add links between nodes based on the ANI calcuation
-    for line in reader.lines().skip(1) {
-        let line: String = line?;
-        let columns: Vec<&str> = line.split('\t').collect();
+    let edges: Vec<(NodeIndex, NodeIndex)> = reader
+        .lines()
+        .skip(1)
+        .par_bridge()
+        .filter_map(|line| {
+            let line = line.ok()?;
+            let columns: Vec<&str> = line.split('\t').collect();
+        if columns.len() < 3 {
+            return None;
+        }
 
         let bin1 = Path::new(columns[0])
             .file_stem()
@@ -83,25 +92,33 @@ pub fn calc_ani(
             .file_stem()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| columns[1].to_string());
-        let ani: f64 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
+
+        let ani: f64 = columns[2].parse().ok()?;
         
         // Skani reports pairs only if ANI is >= 80%
-        ani_details.insert((bin1.clone(), bin2.clone()), ani);
+        ani_details_tmp.lock().expect("Mutex lock poisoned").insert((bin1.clone(), bin2.clone()), ani);
         if ani < ani_cutoff {
-            continue;
+            return None;
         }
 
-        // Check if both bins exist in the bin_name_to_node map
-        if let (Some(node1), Some(node2)) = (
-            bin_name_to_node.get(&bin1),
-            bin_name_to_node.get(&bin2),
-        ) {
-            // Add edge if both bins exist in the graph
-            graph.add_edge(*node1, *node2, ());
+        // Return edge tuple if both nodes exist
+        if let (Some(&node1), Some(&node2)) = (bin_name_to_node.get(&bin1), bin_name_to_node.get(&bin2)) {
+            Some((node1, node2))
+        } else {
+            None
         }
+    })
+    .collect();
+    
+    for (node1, node2) in edges {
+        graph.add_edge(node1, node2, ());
     }
+    
+    let ani_details = Arc::try_unwrap(
+        ani_details_tmp).expect("Mutex still has multiple owners").into_inner().unwrap();
+
     // Remove skani output file
-    let _ = fs::remove_file(&ani_output);
+    // remove_file(&ani_output).ok();
 
    Ok((graph, ani_details))
 }
@@ -132,9 +149,12 @@ pub fn get_connected_samples(
     }
     let mut connected_samples: Vec<HashSet<String>> = vec![];
     for component in connected_components {
-        debug!("Iterating over connected component {:?}", component);
-        let mut subclusters = split_component_into_cliques(component, ani_details, ani_cutoff);
-        connected_samples.append(&mut subclusters);
+        if component.len() <=2 {
+            connected_samples.push(component);
+        } else {
+            let mut subclusters = split_component_into_cliques(component, ani_details, ani_cutoff);
+            connected_samples.append(&mut subclusters);
+        }
     }
     connected_samples
 }
@@ -173,6 +193,7 @@ fn split_component_into_cliques(
     let mut cliques = Vec::new();
     let all_nodes: HashSet<NodeIndex> = subgraph.node_indices().collect();
 
+    // Get maximal Cliques
     bron_kerbosch(&subgraph, &mut HashSet::new(), &mut all_nodes.clone(), &mut HashSet::new(), &mut cliques);
 
     let mut subclusters: Vec<HashSet<String>> = cliques
@@ -281,7 +302,6 @@ pub fn combine_fastabins(
         .join(format!("combined.fasta")))?;
     for bin_samplename in bin_samplenames {
         let bin_file_path = inputdir.join(format!("{}.{}", bin_samplename, format));
-        debug!("Combine_fastabins: bin_file_path {:?} with {:?}", bin_file_path, combined_bins);
         if bin_file_path.exists() {
             let bin_file = File::open(&bin_file_path)?;
             let reader = fasta::Reader::new(bin_file);
@@ -295,5 +315,98 @@ pub fn combine_fastabins(
             error!("Warning: File for bin '{}' does not exist at {:?}", bin_samplename, bin_file_path);
         }
     }
+    Ok(())
+}
+
+pub fn drep_finalbins(
+    result_dir: &PathBuf,
+    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    ani_cutoff: f64
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ani_output: PathBuf = result_dir.join("ani_edges");
+    let finalbin_files: Vec<String> = glob(&format!("{}/*.fasta", result_dir.display()))
+    .expect("Failed to read glob pattern")
+    .filter_map(Result::ok)
+    .map(|path| path.to_string_lossy().into_owned())
+    .collect();
+    
+    let _ = get_ani(finalbin_files, &ani_output);
+
+    debug!("Bin qualities length after reassembly: {}", bin_qualities.read().unwrap().len());
+
+    let file: File = File::open(ani_output.clone())?;
+    let reader: BufReader<File> = io::BufReader::new(file);
+
+    let mut bins_to_remove: HashSet<String> = HashSet::new();
+    for line in reader.lines().skip(1) {
+        let line: String = line?;
+        let columns: Vec<&str> = line.split('\t').collect();
+    
+        let bin1 = Path::new(columns[0])
+            .file_stem()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| columns[0].to_string());
+    
+        let bin2 = Path::new(columns[1])
+            .file_stem()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| columns[1].to_string());
+    
+        let ani: f64 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
+
+        if ani >= ani_cutoff {
+            let (q1, q2) = {
+                // Acquire read lock guard
+                let qualities = bin_qualities.read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                
+                // Clone values while holding the lock
+                (
+                    qualities.get(&bin1).cloned().unwrap(), 
+                    qualities.get(&bin2).cloned().unwrap()
+                )
+            };
+    
+            let worse_bin = if q1.completeness > q2.completeness {
+                &bin2
+            } else if q1.completeness < q2.completeness {
+                &bin1
+            } else if q1.contamination < q2.contamination {
+                &bin2
+            } else {
+                &bin1
+            };
+            bins_to_remove.insert(worse_bin.clone());
+        }
+    }
+    
+    debug!("Length of list with bins to remove: {}", bins_to_remove.len());
+    // Remove redundant bins
+    for bin in &bins_to_remove {
+        let bin_file_path = result_dir.join(format!("{}.fasta", bin));
+    
+        if bin_file_path.exists() {
+            remove_file(&bin_file_path).ok();
+        }
+    }
+    // remove_file(&ani_output).ok();
+    Ok(())
+}
+
+fn get_ani (
+    inputbins:Vec<String>,
+    ani_output: &PathBuf
+) -> Result<(), io::Error> {
+    let mut command = ProcessCommand::new("skani");
+    command.arg("triangle");
+    command.args(&inputbins);
+    command.arg("-E");
+    
+    let output = command.output()?;
+    
+    if !output.status.success() {
+        return Err(io::Error::new(io::ErrorKind::Other, "skani triangle failed"));
+    }
+    std::fs::write(&ani_output, output.stdout)?;
     Ok(())
 }

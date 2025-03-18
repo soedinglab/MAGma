@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::exit;
-use log::{debug, error};
-use glob::glob;
+use log::error;
 
 pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str) -> &'a PathBuf {
     let path = path.expect(&format!("{} path is required", name));
@@ -152,7 +151,6 @@ pub fn splitbysampleid(
         }
         write_line_to_file(&current_sample_id, &line, &mut writers)?;
     }
-    debug!("Finished writing sample-wise bins for {:?}", bin);
     Ok(())
 }
 

@@ -41,3 +41,10 @@ read4_id    contig4_id
 ```
 
 If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
+
+### Notes
+Make sure that headers in the read fastq files have read_id separated from other sequencer specifics by space/tab and not by `.`. This is important for `seqtk` to fetch reads correctly.
+
+`Correct one: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+
+`Wrong one: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`

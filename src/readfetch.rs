@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use crate::utility;
-use log::{debug, error};
+use log::error;
 
 pub fn fetch_fastqreads(
     enriched_scaffolds: &HashSet<String>,
@@ -42,7 +42,6 @@ pub fn fetch_fastqreads(
             ]
         };
 
-    debug!("Writing reads for {:?}", output_fastq);
     let _ = write_selected_reads(
         fastq_files,
         &enriched_scaffolds,
@@ -51,7 +50,7 @@ pub fn fetch_fastqreads(
         is_paired);
 
     let file_metadata = std::fs::metadata(&output_fastq[0]).map_err(|e| {
-        eprintln!("Error accessing {:?}: {}", output_fastq, e);
+        error!("Error accessing {:?}: {}", output_fastq, e);
         Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("Failed to access {:?}", output_fastq),
@@ -59,7 +58,7 @@ pub fn fetch_fastqreads(
     })?;
 
     if file_metadata.len() == 0 {
-        eprintln!("Error: The output file {:?} is empty", output_fastq[0]);
+        error!("Error: The output file {:?} is empty", output_fastq[0]);
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("No reads were written to {:?}", output_fastq[0]),

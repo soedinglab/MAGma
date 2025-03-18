@@ -3,11 +3,13 @@ use std::fs::{self};
 use std::io::{self, stderr, Write};
 use std::path::PathBuf;
 use std::process::exit;
+use assess::BinQuality;
 use clap::Parser;
 use gfaparser::parse_gfa_fastq;
 use rayon::prelude::*;
 use rayon::{current_num_threads, ThreadPoolBuilder};
-use log::{debug, info};
+use log::{debug, info, error};
+use std::sync::{Arc, RwLock};
 
 mod gfaparser;
 mod utility;
@@ -114,7 +116,7 @@ fn main() -> io::Result<()> {
     println!("  assembler choice: {}", assembler);
 
     if assembler != "spades" && assembler != "megahit" {
-        eprintln!("Error: Invalid assembler choice '{}'. Allowed options: 'spades' or 'megahit'.", assembler);
+        error!("Error: Invalid assembler choice '{}'. Allowed options: 'spades' or 'megahit'.", assembler);
         exit(1);
     }
     let mut gfa_flag: bool = true;
@@ -156,7 +158,11 @@ fn main() -> io::Result<()> {
     // Final merge bins directory
     // eg: resultspath = <bindir>/mergedbins/
     let resultdir: PathBuf = parentdir
-            .join("mergedbins");
+        .join(format!(
+        "mags_{}comp_{}purity",
+        completeness_cutoff as u32,
+        purity_cutoff as u32
+    ));
     if resultdir.exists() {
         fs::remove_dir_all(&resultdir)?;
     }
@@ -184,10 +190,9 @@ fn main() -> io::Result<()> {
             .filter_map(|bin| bin.canonicalize().ok())
             .filter(|bin| {
                 if bin.exists() {
-                    debug!("Bin file: {:?}", bin);
                     true
                 } else {
-                    eprintln!("Bin file does not exist: {:?}", bin);
+                    error!("Bin file does not exist: {:?}", bin);
                     false
                 }
             })
@@ -201,21 +206,19 @@ fn main() -> io::Result<()> {
             });
         });
         bindir = samplewisebinspath;
-        debug!("splitting bins by sample {:?} is completed", bindir);
+        info!("splitting bins by sample {:?} is completed", bindir);
     }
 
     // Get sample list
     let bin_sample_map: HashMap<String, String> = utility::get_sample_names(&bindir,&format)?;
     let sample_list: HashSet<String> = bin_sample_map.values().cloned().collect();
     info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
-    debug!("samples: {:?}", sample_list);
 
     // Obtain quality of bins
     // eg: checkm2_outputpath = <bindir>/checkm2_results/
     let checkm2_outputpath: PathBuf = bindir
         .join("checkm2_results");
     
-    debug!("checkm2 evaluation for {:?} is started", bindir);
     // TODO: remove checkm2 output folder
     let checkm2_qualities = assess::assess_bins(
         &bindir,
@@ -223,38 +226,36 @@ fn main() -> io::Result<()> {
         threads,
         &format)?;
 
-    let bin_qualities = match assess::parse_bins_quality(
+    let bin_qualities = Arc::new(RwLock::new(match assess::parse_bins_quality(
         &checkm2_qualities,
     ) {
         Ok(quality) => quality,
         Err(_) => {
-            eprintln!(
+            error!(
                 "Failed to parse quality inputbins {:?}.",
                 bindir
             );
             return Ok(());
         }
-    };
-    debug!("checkm2 evaluation for {:?} is completed", bindir);
+    }));
+    info!("checkm2 evaluation for {:?} is completed", bindir);
 
     // None of the bins are pure
-    if bin_qualities.len() == 0 {
-        debug!("{:?} doesn't have high pure bins. Or if existing checkm2 result is empty, first remove them before running mergebins", bindir);
+    if bin_qualities.read().unwrap().len() == 0 {
+        info!("Input {:?} does not have any high pure bins. Or if existing checkm2 result is empty, first remove them before running maga", bindir);
         return Ok(());
     }        
 
+    debug!("Bin qualities length before reassembly: {}", bin_qualities.read().unwrap().len());
     let (graph, ani_details) = match merge::calc_ani(&bindir, &bin_qualities, &format, ani_cutoff, contamination_cutoff) {
         Ok((graph, ani_details)) => {
-            debug!("Graph was constructed for {:?}", bindir);
             (graph, ani_details)
         },
         Err(e) => {
-            eprintln!("Error calculating ANI: {}", e);
+            error!("Error calculating ANI: {}", e);
             return Ok(()); // Return early in case of an error
         }
     };
-    
-    debug!("Graph {:?}", graph);
     
     // Assuming `get_connected_samples` or a similar function takes the graph and the ani_details.
     let connected_bins: Vec<HashSet<String>> = merge::get_connected_samples(&graph, &ani_details, ani_cutoff);
@@ -266,7 +267,7 @@ fn main() -> io::Result<()> {
         .try_for_each(|(id, component)| {
             // Flush stderr once before processing starts
             stderr().flush().ok();
-
+            let bin_qualities = Arc::clone(&bin_qualities);
             // Process each connected component
             process_components(
                 component.clone(),
@@ -279,7 +280,7 @@ fn main() -> io::Result<()> {
                 &resultdir,
                 bin_sample_map.clone(),
                 &format,
-                bin_qualities.clone(),
+                &bin_qualities,
                 is_paired,
                 assembler.clone(),
                 completeness_cutoff,
@@ -287,16 +288,19 @@ fn main() -> io::Result<()> {
                 id,
             )
             .map_err(|e| {
-                eprintln!("Error processing bin {:?}: {}", component, e);
+                error!("Error processing bin {:?}: {}", component, e);
                 e
             })
         })
         .expect("Error during processing components");
     });
 
+    let _ = merge::drep_finalbins(&resultdir, &bin_qualities, ani_cutoff);
+    
     // clear tmp files
-    let _ = fs::remove_dir_all(checkm2_outputpath);
-    info!("Bin merging was successfully completed!");  
+    // let _ = fs::remove_dir_all(checkm2_outputpath);
+    
+    info!("MAGma is successfully completed!");  
 
     Ok(())
 }
@@ -312,41 +316,36 @@ fn process_components(
     resultdir: &PathBuf,
     bin_sample_map: HashMap<String,String>,
     format: &String,
-    bin_qualities: HashMap<String, assess::BinQuality>,
+    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
     is_paired: bool,
     assembler:String,
     completeness_cutoff: f64,
     contamination_cutoff: f64,
     id: usize,
 ) -> std::io::Result<()> {
-
+    
     // eg: comp = {"binname_S1", "binname_S2"}
-    debug!("{} id with length {} for component {:?}", id, component.len(), component);
     if component.len() == 1 {
-        debug!("Single component. Checking its quality {:?}", component);
-        let binname = component.into_iter().next().expect("The component is empty.");
-        if let Some(quality) = bin_qualities.get(&binname) {
+        let binname = component.into_iter().next().expect("The component is empty.");    
+
+        if let Some(quality) = bin_qualities.read().unwrap().get(&binname) {
             if quality.completeness >= completeness_cutoff {
                 let bin_path = bindir.join(format!("{}.{}", binname, format));
                 let final_path = resultdir.join(format!("{}.fasta", binname));
-                debug!("Copying {:?} to {:?} for component {}", bin_path, final_path, id.to_string());
-                
-                if let Err(e) = fs::copy(&bin_path, &final_path) {
-                    debug!("Failed to copy bin {}: {:?}", binname, e);
-                }
+                fs::copy(&bin_path, &final_path).ok();
             }
         }
         return Ok(());
     }
     
-    if assess::check_high_quality_bin(&component, &bin_qualities, bindir, resultdir, id, &format) {
+    if assess::check_high_quality_bin(&component, &bin_qualities, bindir, resultdir, &format) {
         return Ok(());
     }
 
     // check quality of the components if merged
     // eg. selected_binset_path = <bindir>/0_combined/
     let selected_binset_path = 
-        bindir.join(format!("{}_combined", id.to_string()));
+        bindir.join(format!("{}_combined", id));
     if selected_binset_path.exists() {
         fs::remove_dir_all(&selected_binset_path)?;
     }
@@ -357,14 +356,13 @@ fn process_components(
     &component,
     &selected_binset_path,
         &format).map_err(|e| {
-        eprintln!(
+        error!(
             "Error in combining combined bins for component {}: {}",
             id, e
         );
         e
     })?;
 
-    debug!("input to fetch combined contig ids {}", &selected_binset_path.join("combined.fasta").to_string_lossy());
     let mut all_enriched_scaffolds = HashSet::new();
     if !gfa_flag {
         all_enriched_scaffolds = utility::read_fasta(
@@ -373,7 +371,6 @@ fn process_components(
     } else {
         let mut create_new = true;
         for samplebin in component.clone() {
-            debug!("going to read gfa processing for {}", samplebin);
             let sample = bin_sample_map.get(&samplebin)
                 .expect(&format!("Error: File '{}' not found in map!", samplebin));
 
@@ -412,8 +409,7 @@ fn process_components(
             }
         }
     }
-    debug!("Fetched contigs from assembly file");
-    debug!("all enriched scaffolds: {} {:?}", all_enriched_scaffolds.len(), all_enriched_scaffolds);
+
     let scaffold_inputname:&str;
     if gfa_flag {
         scaffold_inputname = "combined_enriched";
@@ -424,8 +420,6 @@ fn process_components(
         let sample = bin_sample_map.get(&samplebin)
             .expect(&format!("Error: File '{}' not found in map!", samplebin));
 
-
-        debug!("processing sample file {} to get reads", sample);
         let mapid_path = mapdir.join(format!("{}_mapids", sample));
         let mapid_file = utility::path_to_str(&mapid_path);
                     
@@ -445,7 +439,6 @@ fn process_components(
             ]
         };
         
-        debug!("map id {} read file1 {:?} ", mapid_file, read_files);
         let _ = fetch_fastqreads(
             &all_enriched_scaffolds,
             mapid_file,
@@ -466,7 +459,6 @@ fn process_components(
         vec![selected_binset_path.join(format!("{}.fastq", scaffold_inputname))]
     };
 
-    info!("Performing assembly for {} with reads {:?}", id, reads_path);
     let reassembly_outputdir = selected_binset_path.join("assembly");
 
     let _ = reassemble::run_reassembly(
@@ -484,7 +476,6 @@ fn process_components(
         completeness_cutoff,
         contamination_cutoff,
     );
-    info!("Component {} is processed", id);
     
     // clean folders
     let _ = fs::remove_dir_all(selected_binset_path);
