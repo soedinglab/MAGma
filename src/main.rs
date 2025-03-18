@@ -87,7 +87,7 @@ struct Cli {
 }
 
 fn main() -> io::Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
 
     // Parse arguments
@@ -113,7 +113,7 @@ fn main() -> io::Result<()> {
     println!("  readdir: {:?}", readdir);
     println!("  format: {}", format);
     println!("  threads: {}", threads);
-    println!("  assembler choice: {}", assembler);
+    println!("  assembler: {}", assembler);
 
     if assembler != "spades" && assembler != "megahit" {
         error!("Error: Invalid assembler choice '{}'. Allowed options: 'spades' or 'megahit'.", assembler);
