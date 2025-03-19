@@ -40,9 +40,8 @@ pub fn assess_bins(
     
         match output.status() {
             Ok(_) => {
-                
-                // error!("NOTE: CheckM2 failed for {:?}! Check (-x) input format is incorrect."
-                // ,bindir);
+                error!("NOTE: CheckM2 failed for {:?}! Check (-x) input format is incorrect."
+                ,bindir);
             }
             Err(e) => {
                 error!("Error: Failed to execute CheckM2 command - {}. Check if CheckM2 is executable currently", e);

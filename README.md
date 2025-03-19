@@ -31,12 +31,12 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
 
 # Example
 
-    magma -b bindir -m mapid_dir -r readdir -f fasta -t 24
-    magma -b bindir -m mapid_dir -r readdir -f fasta -t 24 --split // if bins are not already split by sample id 
+    magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24
+    magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 --split // if input bins are not already split by sample id 
 
 
 ### Notes
-1. Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
+Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
 File name: `<sampleid>_mapids`
 ```
@@ -50,8 +50,10 @@ read4_id    contig4_id
 
 If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
 
-2. Make sure that headers in the read fastq files have read_id separated from other sequencer specifics by space/tab (not by `.`). This is important for `seqtk` to fetch reads correctly.
+Make sure that headers in the read fastq files have read_id separated by space/tab (not by `.`) from other sequencer details. This is important for `seqtk` to fetch reads correctly.
 
-`Works: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+`Correct header: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
 `Doesn't work: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+
+fastq and mapid files must have sampleid in the file name. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)

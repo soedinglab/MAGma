@@ -5,7 +5,7 @@ use std::fs::{self,File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{exit, Command as ProcessCommand, Stdio};
 use std::sync::{Arc, RwLock};
-use log::error;
+use log::{error, warn};
 use crate::assess::{assess_bins, parse_bins_quality, select_highcompletebin, BinQuality};
 
 pub fn run_reassembly(
@@ -101,7 +101,7 @@ pub fn run_reassembly(
                 }
             }
             Ok(_) => {
-                error!("NOTE: SPAdes failed for {:?}! This is likely due to small input bin and insufficient k-mer counts from readset."
+                warn!("SPAdes failed for {:?} due to low k-mer counts. Selecting best bin."
                     ,binfile.iter()
                     .rev()
                     .nth(2)  // nth(2) gives the third component (0-based index)
@@ -256,8 +256,6 @@ fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
         writeln!(output, "{}", current_header)?;
         writeln!(output, "{}", current_sequence)?;
     }
-
-    println!("Filtered sequences saved to: {}", output_file.to_string_lossy());
 
     Ok(())
 }

@@ -7,7 +7,7 @@ use assess::BinQuality;
 use clap::Parser;
 use gfaparser::parse_gfa_fastq;
 use rayon::prelude::*;
-use rayon::{current_num_threads, ThreadPoolBuilder};
+use rayon::ThreadPoolBuilder;
 use log::{debug, info, error};
 use std::sync::{Arc, RwLock};
 
@@ -102,35 +102,26 @@ fn main() -> io::Result<()> {
     let assembler: String = cli.assembler;
     let parentdir = bindir.parent().map(PathBuf::from).unwrap_or_else(|| bindir.clone());
     
-    println!("Starting merge process with the following parameters:");
-    println!("  bindir: {:?}", bindir);
-    println!("  ANI (%): {:?}", ani_cutoff);
-    println!("  Completeness (%): {:?}", completeness_cutoff);
-    println!("  Purity/Contamination (%): {:?}/{:?}", purity_cutoff, contamination_cutoff);
-    println!("  gfadir: {:?}", gfadir);
-    println!("  assemblydir: {:?}", assemblydir);
-    println!("  mapdir: {:?}", mapdir);
-    println!("  readdir: {:?}", readdir);
-    println!("  format: {}", format);
-    println!("  threads: {}", threads);
-    println!("  assembler: {}", assembler);
+    info!("Starting MAGma with parameters:");
+    info!("  🔹 Bins Directory: {:?}", bindir);
+    info!("  🔹 ANI Cutoff: {:.2}%", cli.ani);
+    info!("  🔹 Completeness Cutoff: {:.2}%", cli.completeness_cutoff);
+    info!("  🔹 Purity/Contamination: {:.2}% / {:.2}%", cli.purity_cutoff, contamination_cutoff);
+    info!("  🔹 GFA Directory: {:?}", gfadir);
+    info!("  🔹 Assembly Directory: {:?}", assemblydir);
+    info!("  🔹 Map Directory: {:?}", mapdir);
+    info!("  🔹 Read Directory: {:?}", readdir);
+    info!("  🔹 File Format: {}", format);
+    info!("  🔹 Threads: {}", threads);
+    info!("  🔹 Assembler: {}", assembler);
 
-    if assembler != "spades" && assembler != "megahit" {
+    if !["spades", "megahit"].contains(&assembler.as_str()) {
         error!("Error: Invalid assembler choice '{}'. Allowed options: 'spades' or 'megahit'.", assembler);
         exit(1);
     }
-    let mut gfa_flag: bool = true;
-    let mut gfapath: PathBuf = PathBuf::new();
-    if gfadir.is_none() {
-        gfa_flag = false;
-    } else {
-        gfapath = gfadir.unwrap();
-    }
-
-    let mut assemblypath: PathBuf = PathBuf::new();
-    if !assemblydir.is_none() {
-        assemblypath = assemblydir.unwrap();
-    }
+    let gfa_flag = gfadir.is_some();
+    let gfapath = gfadir.unwrap_or_default();
+    let assemblypath = assemblydir.unwrap_or_default();
 
     let is_paired: bool = utility::check_paired_reads(&readdir);
     if is_paired {
@@ -168,9 +159,7 @@ fn main() -> io::Result<()> {
     }
     fs::create_dir(&resultdir)?;
     
-    info!("{} cores are used", current_num_threads());
-
-    let pool = ThreadPoolBuilder::new()
+let pool = ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()
         .expect("Failed to build thread pool");
@@ -201,8 +190,7 @@ fn main() -> io::Result<()> {
                 let bin_name = bin.file_stem()
                     .and_then(|name| name.to_str())
                     .unwrap_or_default();
-                info!("Splitting bin: {:?}", bin);
-                let _ = utility::splitbysampleid(&bin, bin_name, &samplewisebinspath, &format);
+                utility::splitbysampleid(&bin, bin_name, &samplewisebinspath, &format).ok();
             });
         });
         bindir = samplewisebinspath;

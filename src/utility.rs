@@ -225,27 +225,3 @@ pub fn get_output_binname(bin_fasta: &str) -> PathBuf {
         .unwrap_or("default");
     output_dir.join(format!("{}.fasta", filename))
 }
-
-// pub fn remove_files_matching_pattern(
-//     directory: &Path,
-//     pattern: &str
-// ) -> io::Result<()> {
-//     let search_pattern = 
-//         directory
-//         .join(pattern)
-//         .to_string_lossy()
-//         .to_string();
-//     for entry in glob(&search_pattern)
-//         .map_err(|e
-//         | io::Error::new(
-//         io::ErrorKind::Other,
-//         e.to_string()))? {
-//         match entry {
-//             Ok(path) => {
-//                 let _ = fs::remove_file(&path).is_err();
-//             }
-//             Err(e) => error!("Failed to read matching file: {:?}", e),
-//         }
-//     }
-//     Ok(())
-// }
