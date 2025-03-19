@@ -1,6 +1,6 @@
 use bio::io::fasta;
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{remove_file, File};
@@ -11,7 +11,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::Dfs;
 use petgraph::{Undirected, prelude};
 use std::process::Command as ProcessCommand;
-use log::{debug, error};
+use log::{debug, error, info};
 use glob::glob;
 
 use crate::assess::BinQuality;
@@ -324,13 +324,15 @@ pub fn drep_finalbins(
     ani_cutoff: f64
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ani_output: PathBuf = result_dir.join("ani_edges");
-    let finalbin_files: Vec<String> = glob(&format!("{}/*.fasta", result_dir.display()))
-    .expect("Failed to read glob pattern")
-    .filter_map(Result::ok)
-    .map(|path| path.to_string_lossy().into_owned())
-    .collect();
-    
-    let _ = get_ani(finalbin_files, &ani_output);
+    let finalbin_files: Vec<PathBuf> = glob(&format!("{}/*.fasta", result_dir.display()))
+        .expect("Failed to read glob pattern")
+        .filter_map(Result::ok)
+        .collect();
+
+    let _ = get_ani(
+        finalbin_files.iter().map(|p| p.to_string_lossy().into_owned()).collect(), 
+        &ani_output
+    );
 
     debug!("Bin qualities length after reassembly: {}", bin_qualities.read().unwrap().len());
 
@@ -379,8 +381,18 @@ pub fn drep_finalbins(
             bins_to_remove.insert(worse_bin.clone());
         }
     }
-    
+
     debug!("Length of list with bins to remove: {}", bins_to_remove.len());
+    let bin_names: HashSet<String> = finalbin_files
+        .iter()
+        .filter_map(|file| file.file_stem()?.to_str().map(|s| s.to_string()))
+        .collect();
+
+    let filtered_bin_names: HashSet<String> = bin_names
+        .difference(&bins_to_remove)
+        .cloned()
+        .collect();
+
     // Remove redundant bins
     for bin in &bins_to_remove {
         let bin_file_path = result_dir.join(format!("{}.fasta", bin));
@@ -389,7 +401,24 @@ pub fn drep_finalbins(
             remove_file(&bin_file_path).ok();
         }
     }
+    
     // remove_file(&ani_output).ok();
+    
+    // Write quality measures of bins
+    let output_file_path = result_dir.join("bins_checkm2_qualities.tsv");
+    let output_file = File::create(&output_file_path)?;
+    let mut writer = BufWriter::new(output_file);
+
+    writeln!(writer, "#Bin\tCompleteness\tContamination")?;
+
+    let qualities = bin_qualities.read().unwrap();
+
+    for (bin, quality) in qualities.iter() {
+        if filtered_bin_names.contains(bin) {
+            writeln!(writer, "{}\t{}\t{}", bin, quality.completeness, quality.contamination)?;
+        }
+    }
+    info!("Quality values of bins are written to {:?}", output_file_path);
     Ok(())
 }
 
