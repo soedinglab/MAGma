@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use log::{debug, info, error};
 use std::sync::{Arc, RwLock};
+use readfetch::fetch_fastqreads;
 
 mod gfaparser;
 mod utility;
@@ -17,9 +18,6 @@ mod assess;
 mod merge;
 mod readfetch;
 mod reassemble;
-
-// use index::indexfastqreads;
-use readfetch::fetch_fastqreads;
 
 fn validate_paths(cli: &Cli) -> io::Result<(PathBuf, Option<PathBuf>, Option<PathBuf>, PathBuf, PathBuf)> {
     let bindir = utility::validate_path(Some(&cli.bindir), "bindir", &cli.format);
