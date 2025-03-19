@@ -42,14 +42,29 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
 - **Rust**: Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
 - **Conda**: You can install Conda via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution).
 
+Option 1: Use conda package
 
-Option 2: Build from source
+    conda install -c bioconda magma
+    or
+    mamba install -c bioconda magma // faster installation
+
+Option 2: Use the pre-built x86-64 Linux statically compiled executable. 
+
+    wget https://github.com/soedinglab/MAGma/releases/download/latest/magma
+    chmod +x magma
+    ./magma -h
+
+To use this, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must already be installed and available in your PATH.
+
+Option 3: Build from source
+
     git clone https://github.com/soedinglab/MAGma.git
     cd MAGma
     conda env create -f environment.yml
     conda activate magma_env
     cargo install --path . 
     magma -h
+
 
 
 ### Notes
