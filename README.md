@@ -35,6 +35,23 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 --split // if input bins are not already split by sample id 
 
 
+
+# Install
+### Prerequisites
+
+- **Rust**: Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
+- **Conda**: You can install Conda via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution).
+
+
+Option 2: Build from source
+    conda env create -f environment.yml
+    conda activate magma_env
+    git clone https://github.com/soedinglab/MAGma.git
+    cd MAGma
+    cargo install --path . 
+    magma -h
+
+
 ### Notes
 Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
