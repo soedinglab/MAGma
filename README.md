@@ -44,10 +44,10 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
 
 
 Option 2: Build from source
-    conda env create -f environment.yml
-    conda activate magma_env
     git clone https://github.com/soedinglab/MAGma.git
     cd MAGma
+    conda env create -f environment.yml
+    conda activate magma_env
     cargo install --path . 
     magma -h
 
