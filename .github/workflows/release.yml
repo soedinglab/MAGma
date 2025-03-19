@@ -27,3 +27,5 @@ jobs:
           automatic_release_tag: "latest"
           files: |
             target/x86_64-unknown-linux-musl/release/magma
+    - name: Build for Windows
+      run: cargo build --release --target x86_64-pc-windows-gnu
