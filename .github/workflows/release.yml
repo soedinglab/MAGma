@@ -1,4 +1,4 @@
-name: magma
+name: magma-release
 
 on:
   workflow_dispatch:
@@ -16,7 +16,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+    - run: sudo apt-get install musl musl-tools; rustup target add x86_64-unknown-linux-musl; export RUSTFLAGS="-C target-cpu=x86-64"; cargo build --release --target=x86_64-unknown-linux-musl
+    - uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
+          automatic_release_tag: "latest"
+          files: |
+            target/x86_64-unknown-linux-musl/release/magma
