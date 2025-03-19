@@ -10,65 +10,55 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  build-linux:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: sudo apt-get install musl musl-tools
+      - run: rustup target add x86_64-unknown-linux-musl
+      - run: cargo build --release --target=x86_64-unknown-linux-musl
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
+          automatic_release_tag: "latest"
+          files: |
+            target/x86_64-unknown-linux-musl/release/magma
 
-    # Install Rust toolchain and add necessary targets
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: sudo apt-get install -y mingw-w64
+      - run: rustup target add x86_64-pc-windows-gnu
+      - run: cargo build --release --target x86_64-pc-windows-gnu
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
+          automatic_release_tag: "latest"
+          files: |
+            target/x86_64-pc-windows-gnu/release/magma
 
-    # Install musl for building a static binary for Linux
-    - run: sudo apt-get install musl musl-tools
-    - run: rustup target add x86_64-unknown-linux-musl
-    
-    # Build the project for Linux with musl target
-    - run: |
-        export RUSTFLAGS="-C target-cpu=x86-64"
-        cargo build --release --target=x86_64-unknown-linux-musl
-
-    # Create a GitHub release for the Linux build
-    - uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        prerelease: false
-        automatic_release_tag: "latest"
-        files: |
-          target/x86_64-unknown-linux-musl/release/magma
-
-    # Install mingw-w64 for cross-compiling to Windows
-    - run: sudo apt-get update && sudo apt-get install -y mingw-w64
-
-    # Add the Windows target (x86_64-pc-windows-gnu) to the toolchain
-    - run: rustup target add x86_64-pc-windows-gnu
-
-    # Build the project for Windows with the mingw-w64 target
-    - run: cargo build --release --target x86_64-pc-windows-gnu
-
-    # Create a GitHub release for the Windows build
-    - uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        prerelease: false
-        automatic_release_tag: "latest"
-        files: |
-          target/x86_64-pc-windows-gnu/release/magma
-
-    # Cross-compile for macOS (without xcode-select)
-    - run: rustup target add x86_64-apple-darwin
-
-    # Build the project for macOS (without needing Xcode on Linux runners)
-    - run: cargo build --release --target x86_64-apple-darwin
-
-    # Create a GitHub release for the macOS build
-    - uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        prerelease: false
-        automatic_release_tag: "latest"
-        files: |
-          target/x86_64-apple-darwin/release/magma
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: rustup target add x86_64-apple-darwin
+      - run: cargo build --release --target=x86_64-apple-darwin
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
+          automatic_release_tag: "latest"
+          files: |
+            target/x86_64-apple-darwin/release/magma
