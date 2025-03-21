@@ -68,16 +68,18 @@ Option 3: Build from source
 
 
 ### Notes
+Input contigs should be header prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
+
 Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
 File name: `<sampleid>_mapids`
 ```
-read1_id    contig1_id
-read2_id    contig2_id
-read2_id    contig4_id
-read3_id    contig2_id
-read4_id    contig3_id
-read4_id    contig4_id
+read1_id    sampleidCcontig1_id
+read2_id    sampleidCcontig2_id
+read2_id    sampleidCcontig4_id
+read3_id    sampleidCcontig2_id
+read4_id    sampleidCcontig3_id
+read4_id    sampleidCcontig4_id
 ```
 
 If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.

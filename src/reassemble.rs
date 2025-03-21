@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::fs::{self,File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{exit, Command as ProcessCommand, Stdio};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 use log::{error, warn};
 use crate::assess::{assess_bins, parse_bins_quality, select_highcompletebin, BinQuality};
 
@@ -19,7 +19,8 @@ pub fn run_reassembly(
     id: usize,
     bindir: &PathBuf,
     component: HashSet<String>,
-    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    bin_qualities: &HashMap<String, BinQuality>,
+    merged_bin_quality: &Arc<Mutex<HashMap<String, BinQuality>>>,
     completeness_cutoff: f64,
     contamination_cutoff: f64
 ) {
@@ -28,184 +29,146 @@ pub fn run_reassembly(
         error!("Error: No read files provided.");
         exit(1);
     }
-    if assembler == "spades" {
-        // Run SPAdes assembler
-        let mut output = ProcessCommand::new("spades.py");
-            output.arg("--trusted-contigs")
-            .arg(binfile)
-            .arg("--only-assembler")
-            // .arg("--careful")
-            .arg("-o")
-            .arg(outputdir)
-            .arg("-t")
-            .arg(threads.to_string())
-            .arg("-m")
-            .arg(128.to_string())
-            .stdout(Stdio::null());
-        if is_paired {
-            output.arg("--12").arg(&readfile[0]);
-        } else {
-            output.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+
+    let command_status = match assembler.as_str() {
+        "spades" => {
+            let status = run_spades(readfile, binfile, outputdir, is_paired, threads);
+            if status.is_ok() {
+                let _ = filterscaffold(&outputdir.join("scaffolds.fasta")); // Added filtering step
+            }
+            status
         }
-    
-        match output.status() {
-            Ok(status) if status.success() => {
-                let _ = filterscaffold(&outputdir.join("scaffolds.fasta"));
-                let merged_checkm2_output = match assess_bins(
-                    &outputdir.join("scaffolds_filtered.fasta"),
-                    &outputdir.join("checkm2_results"),
-                    threads, 
-                    &"fasta"){
-                        Ok(path) => path,
-                        Err(e) => {
-                            error!("Error running assess_bins: {}", e);
-                            return;                        }
-                    };
-                let mergedbin_quality = parse_bins_quality(
-                    &merged_checkm2_output
-                );
-                match mergedbin_quality {
-                    Ok(bin_quality_map) => {
-                        // Assuming there's only one key-value pair in the HashMap
-                        if let Some((_, bin_quality)) = bin_quality_map.into_iter().next() {
-                            if bin_quality.contamination < contamination_cutoff && bin_quality.completeness >= completeness_cutoff {
-                                let _ = fs::rename(
-                                outputdir.join("scaffolds_filtered.fasta"), 
-                                resultdir.join(format!("{}_merged.fasta", id)));
+        "megahit" => run_megahit(readfile, outputdir, is_paired, threads),
+        _ => {
+            error!("Unknown assembler: {}", assembler);
+            return;
+        }
+    };
 
-                                let mut qualities = bin_qualities
-                                    .write()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                                qualities.insert(
-                                    format!("{}_merged", id),
-                                    BinQuality {
-                                        completeness: bin_quality.completeness,
-                                        contamination: bin_quality.contamination,
-                                    }
-                                );
+    if let Err(e) = command_status {
+        error!("Assembler failed: {}", e);
+        let _ = select_highcompletebin(
+            &component,
+            bin_qualities,
+            bindir,
+            resultdir,
+            completeness_cutoff
+        );
+        return;
+    }
 
-                            } else {
-                                let _ = select_highcompletebin(
-                                    &component,
-                                    bin_qualities,
-                                    &bindir,
-                                    &resultdir,
-                                    completeness_cutoff
-                                );
+    let merged_bin_path = if assembler == "spades" {
+        outputdir.join("scaffolds_filtered.fasta")
+    } else {
+        outputdir.join("final.contigs.fa")
+    };
+
+    if let Ok(merged_checkm2_output) =
+        assess_bins(&merged_bin_path, &outputdir.join("checkm2_results"), threads, "fasta")
+        {
+            if let Ok(mut bin_quality_map) = parse_bins_quality(&merged_checkm2_output) {
+                if let Some((_, bin_quality)) = bin_quality_map.drain().next() {
+                    if bin_quality.contamination < contamination_cutoff
+                        && bin_quality.completeness >= completeness_cutoff
+                    {
+                        let _ = fs::rename(&merged_bin_path, resultdir.join(format!("{}_merged.fasta", id)));
+                        match merged_bin_quality.lock() {
+                            Ok(mut mergedbin_quality_map) => {
+                                mergedbin_quality_map.insert(format!("{}_merged", id), bin_quality);
+                            },
+                            Err(e) => {
+                                warn!("Error locking the mutex: {}", e);
                             }
                         }
-                    }
-                    Err(e) => {
-                        error!("Failed to parse bin qualities: {:?}", e);
+                    } else {
+                        let _ = select_highcompletebin(
+                            &component,
+                            bin_qualities,
+                            bindir,
+                            resultdir,
+                            completeness_cutoff
+                        );
                     }
                 }
-            }
-            Ok(_) => {
-                warn!("SPAdes failed for {:?} due to low k-mer counts. Selecting best bin."
-                    ,binfile.iter()
-                    .rev()
-                    .nth(2)  // nth(2) gives the third component (0-based index)
-                    .map(|bin| bin.to_string_lossy().to_string()).unwrap());
-                let _ = select_highcompletebin(
-                    &component,
-                    bin_qualities,
-                    &bindir,
-                    &resultdir,
-                    completeness_cutoff
-                );
-            }
-            Err(e) => {
-                error!("Error: Failed to execute SPAdes command - {}", e);
-            }
-        }
-    } 
-    if assembler == "megahit" {
-        // Run Megahit assembler
-        let mut output = ProcessCommand::new("megahit");
-            output.arg("-o")
-            .arg(outputdir)
-            .arg("-t")
-            .arg(threads.to_string())
-            .arg("--min-contig-len")
-            .arg(500.to_string())
-            .stdout(Stdio::null());
-        if is_paired {
-            output.arg("--12").arg(&readfile[0]);
         } else {
-            output.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
-        }
-    
-        match output.status() {
-            Ok(status) if status.success() => {
-                
-                let merged_checkm2_output = match assess_bins(
-                    &outputdir.join("final.contigs.fa"),
-                    &outputdir.join("checkm2_results"),
-                    threads, 
-                    &"fa"){
-                        Ok(path) => path,
-                        Err(e) => {
-                            error!("Error running assess_bins: {}", e);
-                            return;                        }
-                    };
-                let mergedbin_quality = parse_bins_quality(
-                    &merged_checkm2_output
-                );
-                match mergedbin_quality {
-                    Ok(bin_quality_map) => {
-                        // Assuming there's only one key-value pair in the HashMap
-                        if let Some((_, bin_quality)) = bin_quality_map.into_iter().next() {
-                            if bin_quality.contamination < contamination_cutoff && bin_quality.completeness >= completeness_cutoff {
-                                let _ = fs::rename(
-                                    outputdir.join("final.contigs.fa"), 
-                                    resultdir.join(format!("{}_merged.fasta", id)));
-                                let mut qualities = bin_qualities
-                                    .write()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                                qualities.insert(
-                                    format!("{}_merged", id),
-                                    BinQuality {
-                                        completeness: bin_quality.completeness,
-                                        contamination: bin_quality.contamination,
-                                    }
-                                );
-
-                            } else {
-                                let _ = select_highcompletebin(
-                                    &component,
-                                    &bin_qualities,
-                                    &bindir,
-                                    &resultdir,
-                                    completeness_cutoff
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to parse bin qualities: {:?}", e);
-                    }
-                }
-
-            }
-            Ok(_) => {
-                error!("NOTE: Megahit failed for {:?}! Why?"
-                    ,binfile.iter()
-                    .rev()
-                    .nth(2)  // nth(2) gives the third component (0-based index)
-                    .map(|bin| bin.to_string_lossy().to_string()).unwrap());
-                let _ = select_highcompletebin(
-                    &component,
-                    &bin_qualities,
-                    &bindir,
-                    &resultdir,
-                    completeness_cutoff
-                );
-            }
-            Err(e) => {
-                error!("Error: Failed to execute MEGAHIT command - {}", e);
-            }
+            warn!("Failed to parse bin qualities.");
+            let _ = select_highcompletebin(
+                &component,
+                bin_qualities,
+                bindir,
+                resultdir,
+                completeness_cutoff
+            );
         }
     }
+
+}
+
+fn run_spades(
+    readfile: &[PathBuf],
+    binfile: &PathBuf,
+    outputdir: &PathBuf,
+    is_paired: bool,
+    threads: usize,
+) -> std::io::Result<()> {
+    let mut cmd = ProcessCommand::new("spades.py");
+    cmd.arg("--trusted-contigs")
+        .arg(binfile)
+        .arg("--only-assembler")
+        .arg("-o")
+        .arg(outputdir)
+        .arg("-t")
+        .arg(threads.to_string())
+        .arg("-m")
+        .arg(128.to_string())
+        .stdout(Stdio::null());
+
+    if is_paired {
+        cmd.arg("--12").arg(&readfile[0]);
+    } else {
+        cmd.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+    }
+
+    cmd.status().map(|status| {
+        if !status.success() {
+            error!("SPAdes failed due to low k-mer counts.");
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "SPAdes failed"))
+        } else {
+            Ok(())
+        }
+    })?
+}
+
+
+fn run_megahit(
+    readfile: &[PathBuf],
+    outputdir: &PathBuf,
+    is_paired: bool,
+    threads: usize,
+) -> std::io::Result<()> {
+    let mut cmd = ProcessCommand::new("megahit");
+    cmd.arg("-o")
+        .arg(outputdir)
+        .arg("-t")
+        .arg(threads.to_string())
+        .arg("--min-contig-len")
+        .arg("500")
+        .stdout(Stdio::null());
+
+    if is_paired {
+        cmd.arg("--12").arg(&readfile[0]);
+    } else {
+        cmd.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+    }
+
+    cmd.status().map(|status| {
+        if !status.success() {
+            error!("MEGAHIT failed.");
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "MEGAHIT failed"))
+        } else {
+            Ok(())
+        }
+    })?
 }
 
 fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
@@ -256,6 +219,5 @@ fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
         writeln!(output, "{}", current_header)?;
         writeln!(output, "{}", current_sequence)?;
     }
-
     Ok(())
 }

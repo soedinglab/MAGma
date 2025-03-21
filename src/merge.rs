@@ -18,7 +18,7 @@ use crate::assess::BinQuality;
 
 pub fn calc_ani(
     bins: &PathBuf,
-    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    bin_qualities: &HashMap<String, BinQuality>,
     format: &String,
     ani_cutoff: f64,
     contamination_cutoff: f64
@@ -43,32 +43,14 @@ pub fn calc_ani(
 
     let mut graph: Graph<String, (), Undirected> = Graph::default();
 
-    let bin_ids: Vec<String> = {
-        let qualities = bin_qualities.read()
-            .unwrap_or_else(|poisoned| {
-                poisoned.into_inner()
-            });
-        qualities.keys().cloned().collect()
-    };
-    
-    for bin in bin_ids {
-        let should_add = {
-            let qualities = bin_qualities.read()
-                .unwrap_or_else(|poisoned| {
-                    poisoned.into_inner()
-                });
-            qualities.get(&bin)
-                .map_or(false, |q| q.contamination < contamination_cutoff && q.completeness > 20.0)
-        };
-    
-        if !should_add {
-            continue;
+    for (bin, q) in bin_qualities {
+        if q.contamination < contamination_cutoff && q.completeness > 20.0 {
+            bin_name_to_node
+                .entry(bin.clone())
+                .or_insert_with(|| graph.add_node(bin.clone()));
         }
-    
-        bin_name_to_node
-            .entry(bin.clone())
-            .or_insert_with(|| graph.add_node(bin.clone()));
     }
+
     // let mut ani_details = HashMap::new();
     let ani_details_tmp = Arc::new(Mutex::new(HashMap::<(String, String), f64>::new()));
 
@@ -320,7 +302,7 @@ pub fn combine_fastabins(
 
 pub fn drep_finalbins(
     result_dir: &PathBuf,
-    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    bin_qualities: &HashMap<String, BinQuality>,
     ani_cutoff: f64
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ani_output: PathBuf = result_dir.join("ani_edges");
@@ -334,7 +316,7 @@ pub fn drep_finalbins(
         &ani_output
     );
 
-    debug!("Bin qualities length after reassembly: {}", bin_qualities.read().unwrap().len());
+    debug!("Bin qualities length after reassembly: {}", bin_qualities.len());
 
     let file: File = File::open(ani_output.clone())?;
     let reader: BufReader<File> = io::BufReader::new(file);
@@ -357,28 +339,18 @@ pub fn drep_finalbins(
         let ani: f64 = columns[2].parse().expect("Failed to parse ANI value as float from column 3");
 
         if ani >= ani_cutoff {
-            let (q1, q2) = {
-                // Acquire read lock guard
-                let qualities = bin_qualities.read()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                
-                // Clone values while holding the lock
-                (
-                    qualities.get(&bin1).cloned().unwrap(), 
-                    qualities.get(&bin2).cloned().unwrap()
-                )
-            };
-    
-            let worse_bin = if q1.completeness > q2.completeness {
-                &bin2
-            } else if q1.completeness < q2.completeness {
-                &bin1
-            } else if q1.contamination < q2.contamination {
-                &bin2
-            } else {
-                &bin1
-            };
-            bins_to_remove.insert(worse_bin.clone());
+            if let (Some(q1), Some(q2)) = (bin_qualities.get(&bin1), bin_qualities.get(&bin2)) {
+                let worse_bin = if q1.completeness > q2.completeness {
+                    &bin2
+                } else if q1.completeness < q2.completeness {
+                    &bin1
+                } else if q1.contamination < q2.contamination {
+                    &bin2
+                } else {
+                    &bin1
+                };
+                bins_to_remove.insert(worse_bin.clone());
+            }
         }
     }
 
@@ -410,14 +382,13 @@ pub fn drep_finalbins(
     let mut writer = BufWriter::new(output_file);
 
     writeln!(writer, "#Bin\tCompleteness\tContamination")?;
-
-    let qualities = bin_qualities.read().unwrap();
-
-    for (bin, quality) in qualities.iter() {
+    let mut buffer = String::with_capacity(1024 * 1024);
+    for (bin, quality) in bin_qualities.iter() {
         if filtered_bin_names.contains(bin) {
-            writeln!(writer, "{}\t{}\t{}", bin, quality.completeness, quality.contamination)?;
+            buffer.push_str(&format!("{}\t{}\t{}\n", bin, quality.completeness, quality.contamination));
         }
     }
+    writer.write_all(buffer.as_bytes())?;
     info!("Quality values of bins are written to {:?}", output_file_path);
     Ok(())
 }

@@ -4,12 +4,13 @@ use std::io::{self, stderr, Write};
 use std::path::PathBuf;
 use std::process::exit;
 use assess::BinQuality;
+use clap::builder::Str;
 use clap::Parser;
 use gfaparser::parse_gfa_fastq;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use log::{debug, info, error};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use readfetch::fetch_fastqreads;
 
 mod gfaparser;
@@ -102,9 +103,9 @@ fn main() -> io::Result<()> {
     
     info!("Starting MAGma with parameters:");
     info!("  🔹 Bins Directory: {:?}", bindir);
-    info!("  🔹 ANI Cutoff: {:.2}%", cli.ani);
-    info!("  🔹 Completeness Cutoff: {:.2}%", cli.completeness_cutoff);
-    info!("  🔹 Purity/Contamination: {:.2}% / {:.2}%", cli.purity_cutoff, contamination_cutoff);
+    info!("  🔹 ANI Cutoff: {:.1}%", cli.ani);
+    info!("  🔹 Completeness Cutoff: {:.1}%", cli.completeness_cutoff);
+    info!("  🔹 Purity/Contamination: {:.1}%/{:.1}%", cli.purity_cutoff, contamination_cutoff);
     info!("  🔹 GFA Directory: {:?}", gfadir);
     info!("  🔹 Assembly Directory: {:?}", assemblydir);
     info!("  🔹 Map Directory: {:?}", mapdir);
@@ -125,13 +126,10 @@ fn main() -> io::Result<()> {
     if is_paired {
         info!("Detected paired end \
         reads in separate files as \
-        <sampleid>_1.fastq[.gz] \
-        and <sampleid>_2.fastq[.gz]. \
-        They will be processed accordingly.")
+        <sampleid>_1.fastq \
+        and <sampleid>_2.fastq.")
     } else {
-        info!("Read files are interleaved \
-        or single-end as <sampleid>.fastq[.gz]. \
-        They will be processed accordingly.")
+        info!("Detected single-end reads as <sampleid>.fastq.")
     }
     
     let binfiles = utility::get_binfiles(&bindir,&format)?;
@@ -157,7 +155,7 @@ fn main() -> io::Result<()> {
     }
     fs::create_dir(&resultdir)?;
     
-let pool = ThreadPoolBuilder::new()
+    let pool = ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()
         .expect("Failed to build thread pool");
@@ -212,7 +210,7 @@ let pool = ThreadPoolBuilder::new()
         threads,
         &format)?;
 
-    let bin_qualities = Arc::new(RwLock::new(match assess::parse_bins_quality(
+    let mut bin_qualities = match assess::parse_bins_quality(
         &checkm2_qualities,
     ) {
         Ok(quality) => quality,
@@ -223,16 +221,16 @@ let pool = ThreadPoolBuilder::new()
             );
             return Ok(());
         }
-    }));
+    };
     info!("checkm2 evaluation for {:?} is completed", bindir);
 
     // None of the bins are pure
-    if bin_qualities.read().unwrap().len() == 0 {
+    if bin_qualities.len() == 0 {
         info!("Input {:?} does not have any high pure bins. Or if existing checkm2 result is empty, first remove them before running maga", bindir);
         return Ok(());
     }        
 
-    debug!("Bin qualities length before reassembly: {}", bin_qualities.read().unwrap().len());
+    debug!("Bin qualities length before reassembly: {}", bin_qualities.len());
     let (graph, ani_details) = match merge::calc_ani(&bindir, &bin_qualities, &format, ani_cutoff, contamination_cutoff) {
         Ok((graph, ani_details)) => {
             (graph, ani_details)
@@ -246,6 +244,8 @@ let pool = ThreadPoolBuilder::new()
     // Assuming `get_connected_samples` or a similar function takes the graph and the ani_details.
     let connected_bins: Vec<HashSet<String>> = merge::get_connected_samples(&graph, &ani_details, ani_cutoff);
     
+    let merged_bin_qualities: Arc<Mutex<HashMap<String, BinQuality>>> = Arc::new(Mutex::new(HashMap::new()));
+
     pool.install(|| {
         connected_bins
         .par_iter()
@@ -253,8 +253,8 @@ let pool = ThreadPoolBuilder::new()
         .try_for_each(|(id, component)| {
             // Flush stderr once before processing starts
             stderr().flush().ok();
-            let bin_qualities = Arc::clone(&bin_qualities);
             // Process each connected component
+            let merged_bin_quality = Arc::clone(&merged_bin_qualities);
             process_components(
                 component.clone(),
                 &bindir,
@@ -267,6 +267,7 @@ let pool = ThreadPoolBuilder::new()
                 bin_sample_map.clone(),
                 &format,
                 &bin_qualities,
+                &merged_bin_quality,
                 is_paired,
                 assembler.clone(),
                 completeness_cutoff,
@@ -280,6 +281,14 @@ let pool = ThreadPoolBuilder::new()
         })
         .expect("Error during processing components");
     });
+    
+    {
+        let merged_bin_qualities = merged_bin_qualities.lock().unwrap();
+
+        for (key, value) in merged_bin_qualities.iter() {
+            bin_qualities.insert(key.to_string(), value.clone());
+        }
+    }
 
     let _ = merge::drep_finalbins(&resultdir, &bin_qualities, ani_cutoff);
     
@@ -302,19 +311,20 @@ fn process_components(
     resultdir: &PathBuf,
     bin_sample_map: HashMap<String,String>,
     format: &String,
-    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    bin_qualities: &HashMap<String, BinQuality>,
+    merged_bin_quality: &Arc<Mutex<HashMap<String, BinQuality>>>,
     is_paired: bool,
     assembler:String,
     completeness_cutoff: f64,
     contamination_cutoff: f64,
     id: usize,
-) -> std::io::Result<()> {
+) -> io::Result<()> {
     
     // eg: comp = {"binname_S1", "binname_S2"}
     if component.len() == 1 {
         let binname = component.into_iter().next().expect("The component is empty.");    
 
-        if let Some(quality) = bin_qualities.read().unwrap().get(&binname) {
+        if let Some(quality) = bin_qualities.get(&binname) {
             if quality.completeness >= completeness_cutoff {
                 let bin_path = bindir.join(format!("{}.{}", binname, format));
                 let final_path = resultdir.join(format!("{}.fasta", binname));
@@ -447,7 +457,7 @@ fn process_components(
 
     let reassembly_outputdir = selected_binset_path.join("assembly");
 
-    let _ = reassemble::run_reassembly(
+    reassemble::run_reassembly(
         &reads_path,
         &selected_binset_path.join(format!("{}.fasta", scaffold_inputname)),
         &reassembly_outputdir,
@@ -459,11 +469,12 @@ fn process_components(
         bindir,
         component,
         bin_qualities,
+        merged_bin_quality,
         completeness_cutoff,
         contamination_cutoff,
     );
-    
+    info!("Reassembly is completed for component {}", id.to_string());
     // clean folders
-    let _ = fs::remove_dir_all(selected_binset_path);
+    // let _ = fs::remove_dir_all(selected_binset_path);
     Ok(())
 }

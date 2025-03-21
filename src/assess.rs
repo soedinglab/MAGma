@@ -40,8 +40,6 @@ pub fn assess_bins(
     
         match output.status() {
             Ok(_) => {
-                error!("NOTE: CheckM2 failed for {:?}! Check (-x) input format is incorrect."
-                ,bindir);
             }
             Err(e) => {
                 error!("Error: Failed to execute CheckM2 command - {}. Check if CheckM2 is executable currently", e);
@@ -88,27 +86,20 @@ pub fn parse_bins_quality(
 
 pub fn select_highcompletebin(
     bin_samplenames: &HashSet<String>,
-    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    bin_qualities: &HashMap<String, BinQuality>,
     bindir: &PathBuf,
     outputpath: &PathBuf,
     completeness_cutoff: f64,
 ) -> io::Result<()> {
     
-    let highest_completebin = {
-        let bin_qualities_guard = bin_qualities.read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    
-        bin_samplenames
-            .iter()
-            .filter_map(|bin| bin_qualities_guard.get(bin)
-                .map(|quality| (bin, quality.completeness)))
-            .max_by(|(_, completeness1), (_, completeness2)| {
-                completeness1.partial_cmp(completeness2)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .filter(|(_, max_completeness)| *max_completeness >= completeness_cutoff)
-            .map(|(bin, _)| bin.to_string())
-    };
+    let highest_completebin = bin_samplenames
+        .iter()
+        .filter_map(|bin| bin_qualities.get(bin).map(|quality| (bin, quality.completeness)))
+        .max_by(|(_, completeness1), (_, completeness2)| {
+            completeness1.partial_cmp(completeness2).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .filter(|(_, max_completeness)| *max_completeness >= completeness_cutoff)
+        .map(|(bin, _)| bin.clone()); 
 
     if let Some(sample_id) = highest_completebin {
         let bin_path = bindir.join(format!("{}.fasta", sample_id));
@@ -121,22 +112,17 @@ pub fn select_highcompletebin(
 
 pub fn check_high_quality_bin(
     comp: &HashSet<String>,
-    bin_qualities: &Arc<RwLock<HashMap<String, BinQuality>>>,
+    bin_qualities: &HashMap<String, BinQuality>,
     bindir: &PathBuf,
     resultdir: &PathBuf,
     format: &String,
 ) -> bool {
 
-    let comp_binqualities: HashMap<String, BinQuality> = {
-        let qualities = bin_qualities.read()  // Shared read access
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        
-        qualities
-            .iter()
-            .filter(|(bin, _)| comp.contains(bin.as_str()))  // Compare as &str
-            .map(|(bin, q)| (bin.clone(), q.clone()))
-            .collect()
-    };
+    let comp_binqualities: HashMap<String, BinQuality> = bin_qualities
+        .iter()
+        .filter(|(bin, _)| comp.contains(bin.as_str()))  // Compare as &str
+        .map(|(bin, q)| (bin.clone(), q.clone()))
+        .collect();
 
     if let Some((binname, _)) = comp_binqualities
         .iter()
