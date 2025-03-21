@@ -131,8 +131,7 @@ fn run_spades(
 
     cmd.status().map(|status| {
         if !status.success() {
-            error!("SPAdes failed due to low k-mer counts.");
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "SPAdes failed"))
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "SPAdes failed due to low k-mer counts"))
         } else {
             Ok(())
         }
@@ -163,7 +162,6 @@ fn run_megahit(
 
     cmd.status().map(|status| {
         if !status.success() {
-            error!("MEGAHIT failed.");
             Err(std::io::Error::new(std::io::ErrorKind::Other, "MEGAHIT failed"))
         } else {
             Ok(())

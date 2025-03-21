@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::io::{self};
 use std::process::{Command as ProcessCommand, Stdio};
-use std::sync::{Arc, RwLock};
 use log::error;
 
 #[derive(Clone)]

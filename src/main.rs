@@ -4,13 +4,12 @@ use std::io::{self, stderr, Write};
 use std::path::PathBuf;
 use std::process::exit;
 use assess::BinQuality;
-use clap::builder::Str;
 use clap::Parser;
 use gfaparser::parse_gfa_fastq;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use log::{debug, info, error};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use readfetch::fetch_fastqreads;
 
 mod gfaparser;
@@ -474,7 +473,8 @@ fn process_components(
         contamination_cutoff,
     );
     info!("Reassembly is completed for component {}", id.to_string());
+    
     // clean folders
-    // let _ = fs::remove_dir_all(selected_binset_path);
+    let _ = fs::remove_dir_all(selected_binset_path);
     Ok(())
 }

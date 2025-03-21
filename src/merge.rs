@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{remove_file, File};
 use std::io::{self, BufRead, BufReader};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use petgraph::graph::Graph;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Dfs;
