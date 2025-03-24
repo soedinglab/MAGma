@@ -1,7 +1,7 @@
-# MAGma
+## MAGma
 MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through Merging and reAssembly.
 
-# Example run
+## Example run
 
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 -q quality_report.tsv // if CheckM2 result is already available
@@ -9,8 +9,8 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
 
 
 
-# Install
-### Prerequisites
+## Install
+#### Prerequisites
 
 - **Rust**: Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
 - **Conda**: You can install Conda via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution).
@@ -39,7 +39,7 @@ Option 3: Build from source
     magma -h
 
 
-# Options
+## Options
         -b, --bindir <BINDIR>
                 Directory containing fasta files of bins
         -i, --ani <ANI>
@@ -68,7 +68,7 @@ Option 3: Build from source
                 Print version
 
 
-### Notes
+#### Notes
 1. Input contigs should be header prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
 2. Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
