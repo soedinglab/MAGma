@@ -54,6 +54,7 @@ pub fn calc_ani(
     // let mut ani_details = HashMap::new();
     let ani_details_tmp = Arc::new(Mutex::new(HashMap::<(String, String), f64>::new()));
 
+    // TODO: Handle case when file is empty
     let edges: Vec<(NodeIndex, NodeIndex)> = reader
         .lines()
         .skip(1)
@@ -233,7 +234,7 @@ fn split_component_into_cliques(
         }
     }
     subclusters.extend(singletons);
-    debug!("sub clusters for component {:?} is {:?}", component, subclusters);
+
     subclusters
 }
 
@@ -281,7 +282,7 @@ pub fn combine_fastabins(
     // Combine bins fasta into a single file
     let mut output_writer = File::create(
         combined_bins
-        .join(format!("combined.fasta")))?;
+        .join("combined.fasta"))?;
     for bin_samplename in bin_samplenames {
         let bin_file_path = inputdir.join(format!("{}.{}", bin_samplename, format));
         if bin_file_path.exists() {
@@ -407,6 +408,6 @@ fn get_ani (
     if !output.status.success() {
         return Err(io::Error::new(io::ErrorKind::Other, "skani triangle failed"));
     }
-    std::fs::write(&ani_output, output.stdout)?;
+    std::fs::write(ani_output, output.stdout)?;
     Ok(())
 }

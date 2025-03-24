@@ -1,37 +1,10 @@
 # MAGma
-MAGma is a tool to maximize the yield of <u>M</u>etagenome-<u>A</u>ssembled <u>G</u>enomes (MAGs) through <u>M</u>erging and re<u>A</u>ssembly.
+MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through Merging and reAssembly.
 
-    Usage: magma [OPTIONS] --bindir <BINDIR> --mapdir <MAPDIR> --readdir <READDIR>
-
-    Options:
-    -b, --bindir <BINDIR>
-            Directory containing fasta files of bins
-    -i, --ani <ANI>
-            ANI for clustering bins (%) [default: 99]
-    -c, --completeness <COMPLETENESS_CUTOFF>
-            Minimum completeness of bins (%) [default: 50]
-    -p, --purity <PURITY_CUTOFF>
-            Mininum purity of bins (%) [default: 95]
-    -m, --mapdir <MAPDIR>
-            Directory containing mapids files
-    -r, --readdir <READDIR>
-            Directory containing read files
-    -f, --format <FORMAT>
-            Bin file extension [default: fasta]
-    -t, --threads <THREADS>
-            Number of threads to use [default: 8]
-        --split
-            Split clusters into sample-wise bins before processing
-        --assembler <ASSEMBLER>
-            assembler choice for reassembly step (spades|megahit) [default: spades]
-    -h, --help
-            Print help
-    -V, --version
-
-
-# Example
+# Example run
 
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24
+    magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 -q quality_report.tsv // if CheckM2 results is already available
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 --split // if input bins are not already split by sample id 
 
 
@@ -65,6 +38,34 @@ Option 3: Build from source
     cargo install --path . 
     magma -h
 
+
+# Options
+        -b, --bindir <BINDIR>
+                Directory containing fasta files of bins
+        -i, --ani <ANI>
+                ANI for clustering bins (%) [default: 99]
+        -c, --completeness <COMPLETENESS_CUTOFF>
+                Minimum completeness of bins (%) [default: 50]
+        -p, --purity <PURITY_CUTOFF>
+                Mininum purity of bins (%) [default: 95]
+        -m, --mapdir <MAPDIR>
+                Directory containing mapids files
+        -r, --readdir <READDIR>
+                Directory containing read files
+        -f, --format <FORMAT>
+                Bin file extension [default: fasta]
+        -t, --threads <THREADS>
+                Number of threads to use [default: 8]
+        --split
+                Split clusters into sample-wise bins before processing
+        -q, --qual <QUAL>
+                Quality file produced by CheckM2 (quality_report.tsv)
+        --assembler <ASSEMBLER>
+                assembler choice for reassembly step (spades|megahit) [default: spades]
+        -h, --help
+                Print help
+        -V, --version
+                Print version
 
 
 ### Notes

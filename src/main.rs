@@ -69,7 +69,11 @@ struct Cli {
     /// First split bins before merging (if provided, set to true)
     #[arg(long = "split", help = "Split clusters into sample-wise bins before processing")]
     split: bool,
-    
+
+    /// CheckM2 quality file
+    #[arg(short = 'q', long = "qual", help = "Quality file produced by CheckM2 (quality_report.tsv)")]
+    qual: Option<PathBuf>,
+
     /// Directory containing gfa files for metagenomic samples (in gfa1.2 format)
     #[arg(short = 'g', long = "gfadir", help = "Directory containing gfa files")]
     gfadir: Option<PathBuf>,
@@ -98,6 +102,7 @@ fn main() -> io::Result<()> {
     let threads = cli.threads;
     let split = cli.split;
     let assembler: String = cli.assembler;
+    let qual = cli.qual;
     let parentdir = bindir.parent().map(PathBuf::from).unwrap_or_else(|| bindir.clone());
     
     info!("Starting MAGma with parameters:");
@@ -202,12 +207,28 @@ fn main() -> io::Result<()> {
     let checkm2_outputpath: PathBuf = resultdir
         .join("checkm2_results");
     
-    // TODO: remove checkm2 output folder
-    let checkm2_qualities = assess::assess_bins(
-        &bindir,
-        &checkm2_outputpath,
-        threads,
-        &format)?;
+    let checkm2_qualities = if let Some(qual_path) = &qual {
+        if qual_path.is_file() && fs::metadata(qual_path).map(|m| m.len() > 0).unwrap_or(false) {
+            qual_path.clone()  // User have provided CheckM2 quality file
+        } else {
+            info!("Provided quality file {:?} is missing or empty. Running CheckM2...", qual_path);
+            assess::assess_bins(
+                &bindir,
+                &checkm2_outputpath,
+                threads,
+                &format
+            )
+            .expect("Failed to run CheckM2")
+        }
+    } else {
+        assess::assess_bins(
+            &bindir,
+            &checkm2_outputpath,
+            threads,
+            &format
+        )
+        .expect("Failed to run CheckM2")
+    };
 
     let mut bin_qualities = match assess::parse_bins_quality(
         &checkm2_qualities,
@@ -318,6 +339,8 @@ fn process_components(
     contamination_cutoff: f64,
     id: usize,
 ) -> io::Result<()> {
+
+    debug!("{} id component with bins {:?}", id, component);
     
     // eg: comp = {"binname_S1", "binname_S2"}
     if component.len() == 1 {
@@ -350,7 +373,7 @@ fn process_components(
     &bindir,
     &component,
     &selected_binset_path,
-        &format).map_err(|e| {
+        format).map_err(|e| {
         error!(
             "Error in combining combined bins for component {}: {}",
             id, e
@@ -367,7 +390,7 @@ fn process_components(
         let mut create_new = true;
         for samplebin in component.clone() {
             let sample = bin_sample_map.get(&samplebin)
-                .expect(&format!("Error: File '{}' not found in map!", samplebin));
+                .unwrap_or_else(|| panic!("Error: File '{}' not found in map!", samplebin));
 
             // eg: <gfadir>/S1.gfa
             let gfa_path = gfadir.join(format!("{}.gfa", sample));
@@ -382,7 +405,7 @@ fn process_components(
             let assembly_file = utility::path_to_str(&assembly_path);
             // eg: outputbin = <bindir>/0_combined/S1.fasta
             let enriched_scaffolds = parse_gfa_fastq(
-                &sample,
+                sample,
                 gfa_file,
                 subbin_file,
                 assembly_file,
@@ -405,29 +428,29 @@ fn process_components(
         }
     }
 
-    let scaffold_inputname:&str;
-    if gfa_flag {
-        scaffold_inputname = "combined_enriched";
+    let scaffold_inputname:&str = if gfa_flag {
+        "combined_enriched"
     } else {
-        scaffold_inputname = "combined";
-    }
+        "combined"
+    };
+
     for samplebin in component.clone() {
         let sample = bin_sample_map.get(&samplebin)
-            .expect(&format!("Error: File '{}' not found in map!", samplebin));
+            .unwrap_or_else(|| panic!("Error: File '{}' not found in map!", samplebin));
 
         let mapid_path = mapdir.join(format!("{}_mapids", sample));
         let mapid_file = utility::path_to_str(&mapid_path);
                     
         let read_files: Vec<String> = if is_paired {
-            let read_path1 = utility::find_file_with_extension(&readdir, &format!("{}_1", sample));
-            let read_path2 = utility::find_file_with_extension(&readdir, &format!("{}_2", sample));
+            let read_path1 = utility::find_file_with_extension(readdir, &format!("{}_1", sample));
+            let read_path2 = utility::find_file_with_extension(readdir, &format!("{}_2", sample));
     
             vec![
                 read_path1.to_str().expect("Failed to convert PathBuf to &str").to_string(),
                 read_path2.to_str().expect("Failed to convert PathBuf to &str").to_string()
             ]
         } else {
-            let read_path = utility::find_file_with_extension(&readdir, &sample);
+            let read_path = utility::find_file_with_extension(readdir, sample);
             
             vec![
                 read_path.to_str().expect("Failed to convert PathBuf to &str").to_string()

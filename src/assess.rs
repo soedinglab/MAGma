@@ -18,6 +18,7 @@ pub fn assess_bins(
     threads: usize,
     format: &str,
 ) -> Result<PathBuf, io::Error> {
+
     let checkm2_qualities = Path::new(bincheckm2dir).join("quality_report.tsv");
     // Run CheckM2 run
     if !checkm2_qualities.exists() {

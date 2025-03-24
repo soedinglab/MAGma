@@ -44,7 +44,7 @@ pub fn fetch_fastqreads(
 
     let _ = write_selected_reads(
         fastq_files,
-        &enriched_scaffolds,
+        enriched_scaffolds,
         mapids,
         &output_fastq,
         is_paired);
@@ -71,10 +71,10 @@ fn write_selected_reads(
     fastq_files: Vec<String>,
     enriched_scaffolds: &HashSet<String>,
     mapid_file: &str,
-    output_fastq: &Vec<String>,
+    output_fastq: &[String],
     is_paired: bool,
 ) -> Result<(), io::Error> {
-    let mfile = File::open(&mapid_file)?;
+    let mfile = File::open(mapid_file)?;
     let mapid_reader = io::BufReader::new(mfile);
     let readid_file = format!("{}_readids", output_fastq[0].replace(".fastq", ""));
     let mut idfile = io::BufWriter::new(

@@ -211,7 +211,7 @@ fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
             current_header = line;
             current_sequence.clear();
         } else {
-            current_sequence.push_str(&line.trim());
+            current_sequence.push_str(line.trim());
         }
     }
 
