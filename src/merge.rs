@@ -1,11 +1,9 @@
 use bio::io::fasta;
-use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::io::{BufWriter, Write};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{remove_file, File};
 use std::io::{self, BufRead, BufReader};
-use std::sync::{Arc, Mutex};
 use petgraph::graph::Graph;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Dfs;
@@ -51,54 +49,38 @@ pub fn calc_ani(
         }
     }
 
-    // let mut ani_details = HashMap::new();
-    let ani_details_tmp = Arc::new(Mutex::new(HashMap::<(String, String), f64>::new()));
+    let mut ani_details = HashMap::<(String, String), f64>::new();
 
-    // TODO: Handle case when file is empty
-    let edges: Vec<(NodeIndex, NodeIndex)> = reader
-        .lines()
-        .skip(1)
-        .par_bridge()
-        .filter_map(|line| {
-            let line = line.ok()?;
-            let columns: Vec<&str> = line.split('\t').collect();
+    // When file is empty, no edge is formed and all nodes will be Singleton clusters.   
+    for line in reader.lines().skip(1) {
+        let line = line?;
+        let columns: Vec<&str> = line.split('\t').collect();
         if columns.len() < 3 {
-            return None;
+            continue;
         }
-
+    
         let bin1 = Path::new(columns[0])
             .file_stem()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| columns[0].to_string());
-
+    
         let bin2 = Path::new(columns[1])
             .file_stem()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| columns[1].to_string());
-
-        let ani: f64 = columns[2].parse().ok()?;
-        
+    
+        let ani: f64 = columns[2].parse().unwrap_or(0.0);
+    
         // Skani reports pairs only if ANI is >= 80%
-        ani_details_tmp.lock().expect("Mutex lock poisoned").insert((bin1.clone(), bin2.clone()), ani);
+        ani_details.insert((bin1.clone(), bin2.clone()), ani);
         if ani < ani_cutoff {
-            return None;
+            continue;
         }
-
-        // Return edge tuple if both nodes exist
+    
         if let (Some(&node1), Some(&node2)) = (bin_name_to_node.get(&bin1), bin_name_to_node.get(&bin2)) {
-            Some((node1, node2))
-        } else {
-            None
+            graph.add_edge(node1, node2, ());
         }
-    })
-    .collect();
-    
-    for (node1, node2) in edges {
-        graph.add_edge(node1, node2, ());
     }
-    
-    let ani_details = Arc::try_unwrap(
-        ani_details_tmp).expect("Mutex still has multiple owners").into_inner().unwrap();
 
     // Remove skani output file
     // remove_file(&ani_output).ok();
