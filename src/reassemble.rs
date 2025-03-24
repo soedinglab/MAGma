@@ -1,7 +1,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::fs::{self,File};
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{exit, Command as ProcessCommand, Stdio};
 use std::sync::{Arc, Mutex};
@@ -121,12 +121,13 @@ fn run_spades(
         .arg(threads.to_string())
         .arg("-m")
         .arg(128.to_string())
-        .stdout(Stdio::null());
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     if is_paired {
-        cmd.arg("--12").arg(&readfile[0]);
-    } else {
         cmd.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+    } else {
+        cmd.arg("-s").arg(&readfile[0]);
     }
 
     cmd.status().map(|status| {
@@ -152,12 +153,13 @@ fn run_megahit(
         .arg(threads.to_string())
         .arg("--min-contig-len")
         .arg("500")
-        .stdout(Stdio::null());
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     if is_paired {
-        cmd.arg("--12").arg(&readfile[0]);
-    } else {
         cmd.arg("-1").arg(&readfile[0]).arg("-2").arg(&readfile[1]);
+    } else {
+        cmd.arg("-r").arg(&readfile[0]);
     }
 
     cmd.status().map(|status| {

@@ -14,11 +14,11 @@ pub struct BinQuality {
 
 pub fn assess_bins(
     bindir: &PathBuf,
-    bincheckm2: &PathBuf,
+    bincheckm2dir: &PathBuf,
     threads: usize,
     format: &str,
 ) -> Result<PathBuf, io::Error> {
-    let checkm2_qualities = Path::new(bincheckm2).join("quality_report.tsv");
+    let checkm2_qualities = Path::new(bincheckm2dir).join("quality_report.tsv");
     // Run CheckM2 run
     if !checkm2_qualities.exists() {
         // println!("{:?}/quality_report.tsv not found. Running checkm2...", bindir);
@@ -28,7 +28,7 @@ pub fn assess_bins(
         .arg("-i")
         .arg(bindir)
         .arg("-o")
-        .arg(bincheckm2)
+        .arg(bincheckm2dir)
         .arg("-t")
         .arg(threads.to_string())
         .arg("-x")

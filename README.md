@@ -1,5 +1,5 @@
 # MAGma
-MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through Merging and reAssembly.
+MAGma is a tool to maximize the yield of <u>M</u>etagenome-<u>A</u>ssembled <u>G</u>enomes (MAGs) through <u>M</u>erging and re<u>A</u>ssembly.
 
     Usage: magma [OPTIONS] --bindir <BINDIR> --mapdir <MAPDIR> --readdir <READDIR>
 
@@ -90,4 +90,6 @@ Make sure that headers in the read fastq files have read_id separated by space/t
 
 `Doesn't work: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
-fastq and mapid files must have sampleid in the file name. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)
+MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
+
+Sample IDs must be in the file name of fastq and mapid files. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)

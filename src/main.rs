@@ -142,7 +142,7 @@ fn main() -> io::Result<()> {
     }
    
     // Final merge bins directory
-    // eg: resultspath = <bindir>/mergedbins/
+    // eg: resultspath = <parentpathof_bindir>/mags_90comp_95purity/
     let resultdir: PathBuf = parentdir
         .join(format!(
         "mags_{}comp_{}purity",
@@ -198,8 +198,8 @@ fn main() -> io::Result<()> {
     info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
 
     // Obtain quality of bins
-    // eg: checkm2_outputpath = <bindir>/checkm2_results/
-    let checkm2_outputpath: PathBuf = bindir
+    // eg: checkm2_outputpath = <parentpathof_bindir>/mags_90comp_95purity/checkm2_results/
+    let checkm2_outputpath: PathBuf = resultdir
         .join("checkm2_results");
     
     // TODO: remove checkm2 output folder
@@ -215,7 +215,7 @@ fn main() -> io::Result<()> {
         Ok(quality) => quality,
         Err(_) => {
             error!(
-                "Failed to parse quality inputbins {:?}.",
+                "Failed to parse quality inputbins {:?}. Check input --format option",
                 bindir
             );
             return Ok(());
@@ -340,7 +340,7 @@ fn process_components(
     // check quality of the components if merged
     // eg. selected_binset_path = <bindir>/0_combined/
     let selected_binset_path = 
-        bindir.join(format!("{}_combined", id));
+        resultdir.join(format!("{}_combined", id));
     if selected_binset_path.exists() {
         fs::remove_dir_all(&selected_binset_path)?;
     }
@@ -475,6 +475,6 @@ fn process_components(
     info!("Reassembly is completed for component {}", id.to_string());
     
     // clean folders
-    let _ = fs::remove_dir_all(selected_binset_path);
+    // let _ = fs::remove_dir_all(selected_binset_path);
     Ok(())
 }
