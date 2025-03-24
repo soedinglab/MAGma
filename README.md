@@ -69,28 +69,27 @@ Option 3: Build from source
 
 
 ### Notes
-Input contigs should be header prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
+1. Input contigs should be header prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
+2. Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
-Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
+    File name: `<sampleid>_mapids`
+    ```
+    read1_id    sampleidCcontig1_id
+    read2_id    sampleidCcontig2_id
+    read2_id    sampleidCcontig4_id
+    read3_id    sampleidCcontig2_id
+    read4_id    sampleidCcontig3_id
+    read4_id    sampleidCcontig4_id
+    ```
 
-File name: `<sampleid>_mapids`
-```
-read1_id    sampleidCcontig1_id
-read2_id    sampleidCcontig2_id
-read2_id    sampleidCcontig4_id
-read3_id    sampleidCcontig2_id
-read4_id    sampleidCcontig3_id
-read4_id    sampleidCcontig4_id
-```
+3. If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
+4. Make sure that headers in the read fastq files have read_id separated by space/tab (not by `.`) from other sequencer details. This is important for `seqtk` to fetch reads correctly.
 
-If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
+    `Correct header: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
-Make sure that headers in the read fastq files have read_id separated by space/tab (not by `.`) from other sequencer details. This is important for `seqtk` to fetch reads correctly.
+    `Doesn't work: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
-`Correct header: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+    MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
 
-`Doesn't work: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
-
-MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
-
-Sample IDs must be in the file name of fastq and mapid files. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)
+5. Sample IDs must be in the file name of fastq and mapid files. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)
+6. We recommend Spades for reassembly which produces bins with higher purity than bins assembled using Megahit.
