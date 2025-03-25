@@ -69,7 +69,7 @@ Option 3: Build from source
 
 
 #### Notes
-1. Input contigs should be header prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
+1. Input contigs should have id prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
 2. Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
     File name: `<sampleid>_mapids`
@@ -88,6 +88,10 @@ Option 3: Build from source
     `Correct header: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
     `Doesn't work: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+
+When read ids are not seperated by space in the headers, run the below script and use it for mapping.
+ 
+    sed -i -E 's/^(@[^.]+\.[^.]+)\./\1 /' read.fastq
 
     MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
 
