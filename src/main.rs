@@ -199,8 +199,8 @@ fn main() -> io::Result<()> {
 
     // Get sample list
     let bin_sample_map: HashMap<String, String> = utility::get_sample_names(&bindir,&format)?;
-    let sample_list: Vec<&String> = bin_sample_map.values().collect();
-    info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
+    let sample_count= bin_sample_map.values().collect::<HashSet<_>>().len();
+    info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_count);
 
     // Obtain quality of bins
     // eg: checkm2_outputpath = <parentpathof_bindir>/mags_90comp_95purity/checkm2_results/
