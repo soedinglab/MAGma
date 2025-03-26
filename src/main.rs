@@ -276,7 +276,7 @@ fn main() -> io::Result<()> {
             // Process each connected component
             let merged_bin_quality = Arc::clone(&merged_bin_qualities);
             process_components(
-                component.clone(),
+                &component,
                 &bindir,
                 &gfapath,
                 gfa_flag,
@@ -284,12 +284,12 @@ fn main() -> io::Result<()> {
                 &mapdir,
                 &readdir,
                 &resultdir,
-                bin_sample_map.clone(),
+                &bin_sample_map,
                 &format,
                 &bin_qualities,
                 &merged_bin_quality,
                 is_paired,
-                assembler.clone(),
+                &assembler,
                 completeness_cutoff,
                 contamination_cutoff,
                 id,
@@ -321,7 +321,7 @@ fn main() -> io::Result<()> {
 }
 
 fn process_components(
-    component: HashSet<String>,
+    component: &HashSet<String>,
     bindir: &PathBuf,
     gfadir: &PathBuf,
     gfa_flag: bool,
@@ -329,12 +329,12 @@ fn process_components(
     mapdir: &PathBuf,
     readdir: &PathBuf,
     resultdir: &PathBuf,
-    bin_sample_map: HashMap<String,String>,
+    bin_sample_map: &HashMap<String,String>,
     format: &String,
     bin_qualities: &HashMap<String, BinQuality>,
     merged_bin_quality: &Arc<Mutex<HashMap<String, BinQuality>>>,
     is_paired: bool,
-    assembler:String,
+    assembler: &String,
     completeness_cutoff: f64,
     contamination_cutoff: f64,
     id: usize,
@@ -346,7 +346,7 @@ fn process_components(
     if component.len() == 1 {
         let binname = component.into_iter().next().expect("The component is empty.");    
 
-        if let Some(quality) = bin_qualities.get(&binname) {
+        if let Some(quality) = bin_qualities.get(binname) {
             if quality.completeness >= completeness_cutoff {
                 let bin_path = bindir.join(format!("{}.{}", binname, format));
                 let final_path = resultdir.join(format!("{}.fasta", binname));
@@ -388,8 +388,8 @@ fn process_components(
         )?;
     } else {
         let mut create_new = true;
-        for samplebin in component.clone() {
-            let sample = bin_sample_map.get(&samplebin)
+        for samplebin in component {
+            let sample = bin_sample_map.get(samplebin)
                 .unwrap_or_else(|| panic!("Error: File '{}' not found in map!", samplebin));
 
             // eg: <gfadir>/S1.gfa
@@ -434,8 +434,8 @@ fn process_components(
         "combined"
     };
 
-    for samplebin in component.clone() {
-        let sample = bin_sample_map.get(&samplebin)
+    for samplebin in component {
+        let sample = bin_sample_map.get(samplebin)
             .unwrap_or_else(|| panic!("Error: File '{}' not found in map!", samplebin));
 
         let mapid_path = mapdir.join(format!("{}_mapids", sample));
