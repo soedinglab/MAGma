@@ -199,7 +199,7 @@ fn main() -> io::Result<()> {
 
     // Get sample list
     let bin_sample_map: HashMap<String, String> = utility::get_sample_names(&bindir,&format)?;
-    let sample_list: HashSet<String> = bin_sample_map.values().cloned().collect();
+    let sample_list: Vec<&String> = bin_sample_map.values().collect();
     info!("{:?} bin files and {:?} samples found", binfiles.len(), sample_list.len());
 
     // Obtain quality of bins
