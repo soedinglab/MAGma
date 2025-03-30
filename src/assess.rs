@@ -84,32 +84,6 @@ pub fn parse_bins_quality(
     Ok(bin_qualities)
 }
 
-pub fn select_highcompletebin(
-    bin_samplenames: &HashSet<String>,
-    bin_qualities: &HashMap<String, BinQuality>,
-    bindir: &PathBuf,
-    outputpath: &PathBuf,
-    completeness_cutoff: f64,
-) -> io::Result<()> {
-    
-    let highest_completebin = bin_samplenames
-        .iter()
-        .filter_map(|bin| bin_qualities.get(bin).map(|quality| (bin, quality.completeness)))
-        .max_by(|(_, completeness1), (_, completeness2)| {
-            completeness1.partial_cmp(completeness2).unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .filter(|(_, max_completeness)| *max_completeness >= completeness_cutoff)
-        .map(|(bin, _)| bin.clone()); 
-
-    if let Some(sample_id) = highest_completebin {
-        let bin_path = bindir.join(format!("{}.fasta", sample_id));
-        
-        fs::copy(bin_path, outputpath.join(format!("{}.fasta", sample_id))).ok();
-    }
-    Ok(())
-
-}
-
 pub fn check_high_quality_bin(
     comp: &HashSet<String>,
     bin_qualities: &HashMap<String, BinQuality>,

@@ -6,7 +6,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::process::{exit, Command as ProcessCommand, Stdio};
 use std::sync::{Arc, Mutex};
 use log::{error, warn};
-use crate::assess::{assess_bins, parse_bins_quality, select_highcompletebin, BinQuality};
+use crate::assess::{assess_bins, parse_bins_quality, BinQuality};
 
 pub fn run_reassembly(
     readfile: &[PathBuf],
@@ -45,14 +45,39 @@ pub fn run_reassembly(
         }
     };
 
+    let mut selected_bin: Option<String> = None;
+    let mut selected_completeness: Option<f64> = None;
+    let mut selected_contamination: Option<f64> = None;
+
+    if let Some((bin_name, completeness, contamination)) = component
+        .iter()
+        .filter_map(|bin| {
+            bin_qualities.get(bin).map(|quality| (bin, quality.completeness, quality.contamination))
+        })
+        .max_by(|(_, completeness1, contamination1), (_, completeness2, contamination2)| {
+            completeness1
+                .partial_cmp(completeness2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| contamination1.partial_cmp(contamination2).unwrap_or(std::cmp::Ordering::Equal).reverse())
+        })
+        .filter(|(_, max_completeness, _)| *max_completeness >= completeness_cutoff)
+    {
+        selected_bin = Some(bin_name.to_string());
+        selected_completeness = Some(completeness);
+        selected_contamination = Some(contamination);
+    }
+
+    let selected_quality_score = selected_completeness
+        .zip(selected_contamination)
+        .map(|(completeness, contamination)| completeness - (5.0 * contamination))
+        .unwrap_or(completeness_cutoff - (5.0 * contamination_cutoff));
+
     if let Err(e) = command_status {
         error!("Assembler failed: {}", e);
         let _ = select_highcompletebin(
-            &component,
-            bin_qualities,
+            selected_bin,
             bindir,
             resultdir,
-            completeness_cutoff
         );
         return;
     }
@@ -68,8 +93,11 @@ pub fn run_reassembly(
         {
             if let Ok(mut bin_quality_map) = parse_bins_quality(&merged_checkm2_output) {
                 if let Some((_, bin_quality)) = bin_quality_map.drain().next() {
+                    let quality_score = bin_quality.completeness - (5.0 * bin_quality.contamination);
                     if bin_quality.contamination < contamination_cutoff
                         && bin_quality.completeness >= completeness_cutoff
+                        && quality_score > selected_quality_score
+
                     {
                         let _ = fs::rename(&merged_bin_path, resultdir.join(format!("{}_merged.fasta", id)));
                         match merged_bin_quality.lock() {
@@ -82,22 +110,18 @@ pub fn run_reassembly(
                         }
                     } else {
                         let _ = select_highcompletebin(
-                            &component,
-                            bin_qualities,
+                            selected_bin,
                             bindir,
                             resultdir,
-                            completeness_cutoff
                         );
                     }
                 }
         } else {
             warn!("Failed to parse bin qualities.");
             let _ = select_highcompletebin(
-                &component,
-                bin_qualities,
+                selected_bin,
                 bindir,
                 resultdir,
-                completeness_cutoff
             );
         }
     }
@@ -138,7 +162,6 @@ fn run_spades(
         }
     })?
 }
-
 
 fn run_megahit(
     readfile: &[PathBuf],
@@ -220,4 +243,18 @@ fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
         writeln!(output, "{}", current_sequence)?;
     }
     Ok(())
+}
+
+fn select_highcompletebin(
+    selected_bin: Option<String>,
+    bindir: &PathBuf,
+    outputpath: &PathBuf,
+) -> io::Result<()> {
+
+    if let Some(sample_id) = selected_bin {
+        let bin_path = bindir.join(format!("{}.fasta", sample_id));
+        fs::copy(bin_path, outputpath.join(format!("{}.fasta", sample_id))).ok();
+    }
+    Ok(())
+
 }
