@@ -93,7 +93,7 @@ When read ids are not seperated by space in the headers, run the below script an
  
     sed -i -E 's/^(@[^.]+\.[^.]+)\./\1 /' read.fastq
 
-    MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
+MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
 
 5. Sample IDs must be in the file name of fastq and mapid files. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)
 6. We recommend Spades for reassembly which produces bins with higher purity than bins assembled using Megahit.
