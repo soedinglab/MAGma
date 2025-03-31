@@ -54,13 +54,17 @@ pub fn run_reassembly(
         .filter_map(|bin| {
             bin_qualities.get(bin).map(|quality| (bin, quality.completeness, quality.contamination))
         })
+        .filter(|(_, completeness, _)| *completeness >= completeness_cutoff)
         .max_by(|(_, completeness1, contamination1), (_, completeness2, contamination2)| {
-            completeness1
-                .partial_cmp(completeness2)
+            // select the best bin by quality score
+            let score1 = completeness1 - (5.0 * contamination1);
+            let score2 = completeness2 - (5.0 * contamination2);
+            
+            score1
+                .partial_cmp(&score2)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| contamination1.partial_cmp(contamination2).unwrap_or(std::cmp::Ordering::Equal).reverse())
         })
-        .filter(|(_, max_completeness, _)| *max_completeness >= completeness_cutoff)
     {
         selected_bin = Some(bin_name.to_string());
         selected_completeness = Some(completeness);

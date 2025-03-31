@@ -101,10 +101,15 @@ pub fn check_high_quality_bin(
     if let Some((binname, _)) = comp_binqualities
         .iter()
         .filter(|(_, q)| q.completeness > 90.0)
-        .max_by(|a, b| {a.1.completeness
-            .partial_cmp(&b.1.completeness)
-            .unwrap()
-            .then_with(|| b.1.contamination.partial_cmp(&a.1.contamination).unwrap())
+        .max_by(|a, b| {
+            // select the best bin by quality score
+            let quality_score_a = a.1.completeness - (5.0 * a.1.contamination);
+            let quality_score_b = b.1.completeness - (5.0 * b.1.contamination);
+
+            quality_score_a
+                .partial_cmp(&quality_score_b)
+                .unwrap_or(std::cmp::Ordering::Equal) 
+                .then_with(|| a.1.contamination.partial_cmp(&b.1.contamination).unwrap()) // Tie-breaker based on contamination
         })
 
     {
