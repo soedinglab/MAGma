@@ -323,9 +323,12 @@ pub fn drep_finalbins(
 
         if ani >= ani_cutoff {
             if let (Some(q1), Some(q2)) = (bin_qualities.get(&bin1), bin_qualities.get(&bin2)) {
-                let worse_bin = if q1.completeness > q2.completeness {
+                let score1 = q1.completeness - (5.0 * q1.contamination);
+                let score2 = q2.completeness - (5.0 * q2.contamination);
+    
+                let worse_bin = if score1 > score2 {
                     &bin2
-                } else if q1.completeness < q2.completeness {
+                } else if score1 < score2 {
                     &bin1
                 } else if q1.contamination < q2.contamination {
                     &bin2
