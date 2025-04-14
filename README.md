@@ -7,7 +7,8 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 -q quality_report.tsv // if CheckM2 result is already available
     magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 --split // if input bins are not already split by sample id 
 
-
+### Test run
+    magma -b test/bins -m test/mapids -r test/reads -t 24 -q test/quality_report.tsv
 
 ## Install
 #### Prerequisites
