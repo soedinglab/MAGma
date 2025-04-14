@@ -156,6 +156,7 @@ fn main() -> io::Result<()> {
         purity_cutoff as u32
     ));
     if resultdir.exists() {
+        info!("Output folder: {:?} already exist. Cleaning it", &resultdir);
         fs::remove_dir_all(&resultdir)?;
     }
     fs::create_dir(&resultdir)?;
