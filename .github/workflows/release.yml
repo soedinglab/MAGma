@@ -20,45 +20,44 @@ jobs:
       - run: sudo apt-get install musl musl-tools
       - run: rustup target add x86_64-unknown-linux-musl
       - run: cargo build --release --target=x86_64-unknown-linux-musl
-      - uses: "marvinpinto/action-automatic-releases@latest"
+      - uses: "softprops/action-gh-release@v2"
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: false
-          automatic_release_tag: "latest"
-          files: |
-            target/x86_64-unknown-linux-musl/release/magma
+          body_path: ${{ github.workspace }}-CHANGELOG.txt
+          repository: soedinglab/MAGma
+          # note you'll typically need to create a personal access token
+          # with permissions to create releases in the other repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+  # build-windows:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #     - run: sudo apt-get install -y mingw-w64
+  #     - run: rustup target add x86_64-pc-windows-gnu
+  #     - run: cargo build --release --target x86_64-pc-windows-gnu
+  #     - uses: "marvinpinto/action-automatic-releases@latest"
+  #       with:
+  #         repo_token: "${{ secrets.GITHUB_TOKEN }}"
+  #         prerelease: false
+  #         automatic_release_tag: "latest"
+  #         files: |
+  #           target/x86_64-pc-windows-gnu/release/magma
 
-  build-windows:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - run: sudo apt-get install -y mingw-w64
-      - run: rustup target add x86_64-pc-windows-gnu
-      - run: cargo build --release --target x86_64-pc-windows-gnu
-      - uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: false
-          automatic_release_tag: "latest"
-          files: |
-            target/x86_64-pc-windows-gnu/release/magma
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - run: rustup target add x86_64-apple-darwin
-      - run: cargo build --release --target=x86_64-apple-darwin
-      - uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: false
-          automatic_release_tag: "latest"
-          files: |
-            target/x86_64-apple-darwin/release/magma
+  # build-macos:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #     - run: rustup target add x86_64-apple-darwin
+  #     - run: cargo build --release --target=x86_64-apple-darwin
+  #     - uses: "marvinpinto/action-automatic-releases@latest"
+  #       with:
+  #         repo_token: "${{ secrets.GITHUB_TOKEN }}"
+  #         prerelease: false
+  #         automatic_release_tag: "latest"
+  #         files: |
+  #           target/x86_64-apple-darwin/release/magma
