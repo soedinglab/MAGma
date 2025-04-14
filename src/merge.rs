@@ -9,11 +9,12 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::Dfs;
 use petgraph::{Undirected, prelude};
 use std::process::Command as ProcessCommand;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use glob::glob;
 
 use crate::assess::BinQuality;
 
+/// Compute all-vs-all ANI among bins
 pub fn calc_ani(
     bins: &PathBuf,
     bin_qualities: &HashMap<String, BinQuality>,
@@ -51,6 +52,7 @@ pub fn calc_ani(
 
     let mut ani_details = HashMap::<(String, String), f64>::new();
 
+    // Create a graph by add edge when ANI > ANI_threshold
     // When file is empty, no edge is formed and all nodes will be Singleton clusters.   
     for line in reader.lines().skip(1) {
         let line = line?;
@@ -88,7 +90,7 @@ pub fn calc_ani(
    Ok((graph, ani_details))
 }
 
-/// Find single linkage connected components
+/// Find single-linkage connected components
 pub fn get_connected_samples(
     graph: &Graph<String, (), Undirected>,
     ani_details: &HashMap<(String, String), f64>,
@@ -124,6 +126,7 @@ pub fn get_connected_samples(
     connected_samples
 }
 
+// Get clique clusters
 fn split_component_into_cliques(
     component: HashSet<String>,
     ani_details: &HashMap<(String, String), f64>,
@@ -132,7 +135,6 @@ fn split_component_into_cliques(
     let mut subgraph = Graph::<String, (), petgraph::Undirected>::default();
     let mut node_map = HashMap::new();
 
-    // Add nodes
     for bin in &component {
         let node_index = subgraph.add_node(bin.clone());
         node_map.insert(bin.clone(), node_index);
@@ -158,7 +160,7 @@ fn split_component_into_cliques(
     let mut cliques = Vec::new();
     let all_nodes: HashSet<NodeIndex> = subgraph.node_indices().collect();
 
-    // Get maximal Cliques
+    // Get maximal cliques
     bron_kerbosch(&subgraph, &mut HashSet::new(), &mut all_nodes.clone(), &mut HashSet::new(), &mut cliques);
 
     let mut subclusters: Vec<HashSet<String>> = cliques
@@ -220,6 +222,7 @@ fn split_component_into_cliques(
     subclusters
 }
 
+// Detect maximal cliques
 fn bron_kerbosch(
     graph: &Graph<String, (), petgraph::Undirected>,
     r: &mut HashSet<NodeIndex>,
@@ -255,6 +258,7 @@ fn bron_kerbosch(
     }
 }
 
+/// Merged bin files within the cluster
 pub fn combine_fastabins(
     inputdir: &Path,
     bin_samplenames: &HashSet<String>,
@@ -283,6 +287,7 @@ pub fn combine_fastabins(
     Ok(())
 }
 
+/// Dereplicate final bins to remove any redundant bins
 pub fn drep_finalbins(
     result_dir: &PathBuf,
     bin_qualities: &HashMap<String, BinQuality>,
@@ -360,7 +365,11 @@ pub fn drep_finalbins(
         }
     }
     
-    // remove_file(&ani_output).ok();
+    if !cfg!(debug_assertions) {
+        if let Err(e) = remove_file(&ani_output) {
+            warn!("Failed to delete folder {:?}: {}", ani_output, e);
+        }
+    }
     
     // Write quality measures of bins
     let output_file_path = result_dir.join("bins_checkm2_qualities.tsv");
@@ -379,6 +388,8 @@ pub fn drep_finalbins(
     Ok(())
 }
 
+
+// Run skani
 fn get_ani (
     inputbins:Vec<String>,
     ani_output: &PathBuf

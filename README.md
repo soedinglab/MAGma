@@ -27,7 +27,7 @@ Option 2: Use the pre-built x86-64 Linux statically compiled executable.
     chmod +x magma
     ./magma -h
 
-To use this, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must already be installed and available in your PATH.
+To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH.
 
 Option 3: Build from source
 
@@ -35,7 +35,7 @@ Option 3: Build from source
     cd MAGma
     conda env create -f environment.yml
     conda activate magma_env
-    cargo install --path . 
+    cargo install --path .
     magma -h
 
 
@@ -47,7 +47,7 @@ Option 3: Build from source
         -c, --completeness <COMPLETENESS_CUTOFF>
                 Minimum completeness of bins (%) [default: 50]
         -p, --purity <PURITY_CUTOFF>
-                Mininum purity of bins (%) [default: 95]
+                Mininum purity (1- contamination) of bins (%) [default: 95]
         -m, --mapdir <MAPDIR>
                 Directory containing mapids files
         -r, --readdir <READDIR>
@@ -61,7 +61,7 @@ Option 3: Build from source
         -q, --qual <QUAL>
                 Quality file produced by CheckM2 (quality_report.tsv)
         --assembler <ASSEMBLER>
-                assembler choice for reassembly step (spades|megahit) [default: spades]
+                assembler choice for reassembly step (spades|megahit) [default: spades, recommended]
         -h, --help
                 Print help
         -V, --version
@@ -82,18 +82,18 @@ Option 3: Build from source
     read4_id    sampleidCcontig4_id
     ```
 
-3. If input bins are not separated by sample IDs, such as when using MetaBAT2 on a concatenated set of contigs, use the `--split` option to automatically separate clusters by sample IDs.
+3. If input bins are not separated by sample IDs, such as when using MetaBAT2 or COMEBin on a concatenated set of contigs, use the `--split` option to automatically separate input bin by sample IDs.
 4. Make sure that headers in the read fastq files have read_id separated by space/tab (not by `.`) from other sequencer details. This is important for `seqtk` to fetch reads correctly.
 
-    `Correct header: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+    `Correct format: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
-    `Doesn't work: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+    `Wrong format: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
 
 When read ids are not seperated by space in the headers, run the below script and use it for mapping.
  
     sed -i -E 's/^(@[^.]+\.[^.]+)\./\1 /' read.fastq
 
-MAGma accepts both paired-end (in separate files like SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
+MAGma works for paired-end (in separate files: SRR25448374_1.fastq and SRR25448374_2.fastq) and single-end read files.
 
 5. Sample IDs must be in the file name of fastq and mapid files. (E.g., SRR25448374_1.fastq & SRR25448374_2.fastq or SRR25448374.fastq and SRR25448374_mapids)
 6. We recommend Spades for reassembly which produces bins with higher purity than bins assembled using Megahit.

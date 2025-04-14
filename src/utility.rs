@@ -5,6 +5,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::process::exit;
 use log::error;
 
+// Helper function
 pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str) -> &'a PathBuf {
     let path = path.expect(&format!("{} path is required", name));
     
@@ -40,11 +41,13 @@ pub fn validate_path<'a>(path: Option<&'a PathBuf>, name: &'a str, suffix: &str)
     path
 }
 
+// Helper function
 pub fn path_to_str(path: &PathBuf) -> &str {
     path.to_str()
     .expect("Failed to convert PathBuf to &str")
 }
 
+// Helper function
 pub fn check_paired_reads(directory: &PathBuf) -> bool {
     fs::read_dir(directory)
         .ok()
@@ -59,6 +62,7 @@ pub fn check_paired_reads(directory: &PathBuf) -> bool {
     .is_some()
 }
 
+// Helper function
 pub fn find_file_with_extension(directory: &PathBuf, base_name: &str) -> PathBuf {
     let fastq = directory.join(format!("{}.fastq", base_name));
     if fastq.exists() {
@@ -68,6 +72,7 @@ pub fn find_file_with_extension(directory: &PathBuf, base_name: &str) -> PathBuf
     }
 }
 
+// Helper function
 pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
@@ -94,6 +99,7 @@ pub fn get_binfiles(dir: &Path, extension: &str) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+// Helper function
 pub fn get_sample_names(bindir: &Path, extension: &str) -> io::Result<HashMap<String, String>> {
     let mut bin_sample_map = HashMap::new();
     for entry in fs::read_dir(bindir)? {
@@ -126,7 +132,7 @@ pub fn get_sample_names(bindir: &Path, extension: &str) -> io::Result<HashMap<St
     Ok(bin_sample_map)
 }
 
-
+// Helper function
 pub fn splitbysampleid(
     bin: &PathBuf,
     bin_name: &str,
@@ -154,6 +160,7 @@ pub fn splitbysampleid(
     Ok(())
 }
 
+// Helper function
 pub fn extract_sample_id(line: &str) -> io::Result<String> {
     if let Some(idx) = line.find('C') {
         Ok(line[1..idx].to_string()) // Exclude the '>'
@@ -166,6 +173,7 @@ pub fn extract_sample_id(line: &str) -> io::Result<String> {
     }
 }
 
+// Helper function
 pub fn ensure_writer(
     sample_id: &str,
     bin_name: &str,
@@ -189,6 +197,7 @@ pub fn ensure_writer(
     Ok(())
 }
 
+// Helper function
 pub fn write_line_to_file(
     sample_id: &str,
     line: &str,
@@ -201,6 +210,7 @@ pub fn write_line_to_file(
     Ok(())
 }
 
+// Helper function
 pub fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
     let content = read_to_string(fasta_file)?;
     let mut scaffolds = HashSet::new();
@@ -216,6 +226,7 @@ pub fn read_fasta(fasta_file: &str) -> io::Result<HashSet<String>> {
     Ok(scaffolds)
 }
 
+// Helper function
 pub fn get_output_binname(bin_fasta: &str) -> PathBuf {
     let path = Path::new(bin_fasta);
     

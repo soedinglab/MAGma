@@ -6,6 +6,8 @@ use std::io::{self, BufRead, Write};
 use crate::utility;
 use log::error;
 
+
+/// Read fastq file and collect reads mapped to contigs of merged bin
 pub fn fetch_fastqreads(
     enriched_scaffolds: &HashSet<String>,
     mapids: &str,
@@ -67,6 +69,7 @@ pub fn fetch_fastqreads(
     Ok(())
 }
 
+// Write mapped reads to fastq files
 fn write_selected_reads(
     fastq_files: Vec<String>,
     enriched_scaffolds: &HashSet<String>,
@@ -87,11 +90,11 @@ fn write_selected_reads(
             continue;
         }
 
-        // As of now it only works for readid format: @SRR3961047.1
+        // As of now, it only works for readid format: @SRR3961047.1
         let read_id = parts[0];
         let scaffold_id = parts[1];
 
-        // Step 4: Check if scaffold_id exists in the enriched set
+        // Check if scaffold_id exists in the enriched/combined set
         if enriched_scaffolds.contains(scaffold_id) {
             writeln!(idfile, "{}", read_id)?;
         }

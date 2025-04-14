@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use log::{error, warn};
 use crate::assess::{assess_bins, parse_bins_quality, BinQuality};
 
+/// Reassemble merged bin
 pub fn run_reassembly(
     readfile: &[PathBuf],
     binfile: &PathBuf,
@@ -22,7 +23,8 @@ pub fn run_reassembly(
     bin_qualities: &HashMap<String, BinQuality>,
     merged_bin_quality: &Arc<Mutex<HashMap<String, BinQuality>>>,
     completeness_cutoff: f64,
-    contamination_cutoff: f64
+    contamination_cutoff: f64,
+    format: &String
 ) {
     
     if readfile.is_empty() {
@@ -31,10 +33,11 @@ pub fn run_reassembly(
     }
 
     let command_status = match assembler.as_str() {
+        // Default and recommended option: spades
         "spades" => {
             let status = run_spades(readfile, binfile, outputdir, is_paired, threads);
             if status.is_ok() {
-                let _ = filterscaffold(&outputdir.join("scaffolds.fasta")); // Added filtering step
+                let _ = filterscaffold(&outputdir.join("scaffolds.fasta"));
             }
             status
         }
@@ -49,6 +52,7 @@ pub fn run_reassembly(
     let mut selected_completeness: Option<f64> = None;
     let mut selected_contamination: Option<f64> = None;
 
+    // Find the best bin based on quality score within the cluster
     if let Some((bin_name, completeness, contamination)) = component
         .iter()
         .filter_map(|bin| {
@@ -56,7 +60,7 @@ pub fn run_reassembly(
         })
         .filter(|(_, completeness, _)| *completeness >= completeness_cutoff)
         .max_by(|(_, completeness1, contamination1), (_, completeness2, contamination2)| {
-            // select the best bin by quality score
+
             let score1 = completeness1 - (5.0 * contamination1);
             let score2 = completeness2 - (5.0 * contamination2);
             
@@ -70,18 +74,18 @@ pub fn run_reassembly(
         selected_completeness = Some(completeness);
         selected_contamination = Some(contamination);
     }
-
     let selected_quality_score = selected_completeness
-        .zip(selected_contamination)
-        .map(|(completeness, contamination)| completeness - (5.0 * contamination))
-        .unwrap_or(completeness_cutoff - (5.0 * contamination_cutoff));
+    .zip(selected_contamination)
+    .map(|(completeness, contamination)| completeness - (5.0 * contamination))
+    .unwrap_or(completeness_cutoff - (5.0 * contamination_cutoff));
 
     if let Err(e) = command_status {
         error!("Assembler failed: {}", e);
-        let _ = select_highcompletebin(
+        let _ = select_bestqualitybin(
             selected_bin,
             bindir,
             resultdir,
+            format
         );
         return;
     }
@@ -92,6 +96,7 @@ pub fn run_reassembly(
         outputdir.join("final.contigs.fa")
     };
 
+    // Compare the quality of reassembled bin with the best quality bin in the cluster
     if let Ok(merged_checkm2_output) =
         assess_bins(&merged_bin_path, &outputdir.join("checkm2_results"), threads, "fasta")
         {
@@ -113,25 +118,28 @@ pub fn run_reassembly(
                             }
                         }
                     } else {
-                        let _ = select_highcompletebin(
+                        let _ = select_bestqualitybin(
                             selected_bin,
                             bindir,
                             resultdir,
+                            format
                         );
                     }
                 }
         } else {
             warn!("Failed to parse bin qualities.");
-            let _ = select_highcompletebin(
+            let _ = select_bestqualitybin(
                 selected_bin,
                 bindir,
                 resultdir,
+                format
             );
         }
     }
 
 }
 
+// Run spades for reassembly
 fn run_spades(
     readfile: &[PathBuf],
     binfile: &PathBuf,
@@ -167,6 +175,7 @@ fn run_spades(
     })?
 }
 
+// Run megahit for reassembly
 fn run_megahit(
     readfile: &[PathBuf],
     outputdir: &PathBuf,
@@ -198,6 +207,7 @@ fn run_megahit(
     })?
 }
 
+// Filter scaffolds by 500bp length from spades output
 fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
 
     let output_file = match Path::new(input_file)
@@ -249,15 +259,19 @@ fn filterscaffold(input_file: &PathBuf) -> io::Result<()> {
     Ok(())
 }
 
-fn select_highcompletebin(
+// Select the best bin among the cluster members and reassembled bin
+fn select_bestqualitybin(
     selected_bin: Option<String>,
     bindir: &PathBuf,
     outputpath: &PathBuf,
+    format: &String
 ) -> io::Result<()> {
 
-    if let Some(sample_id) = selected_bin {
-        let bin_path = bindir.join(format!("{}.fasta", sample_id));
-        fs::copy(bin_path, outputpath.join(format!("{}.fasta", sample_id))).ok();
+    if let Some(bin_id) = selected_bin {
+        let bin_path = bindir.join(format!("{}.{}", bin_id, format));
+        if let Err(e) = fs::copy(bin_path, outputpath.join(format!("{}.fasta", bin_id))) {
+            error!("Failed to copy {}: {}", bin_id, e);
+        }
     }
     Ok(())
 

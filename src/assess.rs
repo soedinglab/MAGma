@@ -12,6 +12,7 @@ pub struct BinQuality {
     pub contamination: f64,
 }
 
+/// Run CheckM2 to obtain completeness and contamination of input bins
 pub fn assess_bins(
     bindir: &PathBuf,
     bincheckm2dir: &PathBuf,
@@ -20,9 +21,8 @@ pub fn assess_bins(
 ) -> Result<PathBuf, io::Error> {
 
     let checkm2_qualities = Path::new(bincheckm2dir).join("quality_report.tsv");
-    // Run CheckM2 run
+
     if !checkm2_qualities.exists() {
-        // println!("{:?}/quality_report.tsv not found. Running checkm2...", bindir);
         let mut output = ProcessCommand::new("checkm2");
         output
         .arg("predict")
@@ -49,6 +49,7 @@ pub fn assess_bins(
     Ok(checkm2_qualities)
 }
 
+/// Parse CheckM2 result
 pub fn parse_bins_quality(
     checkm2_qualities: &PathBuf,
 ) -> io::Result<HashMap<String, BinQuality>> {
@@ -62,7 +63,7 @@ pub fn parse_bins_quality(
             ),
         )
     })?;
-    // read checkm2 output file
+
     let mut rdr = ReaderBuilder::new()
         .has_headers(true)
         .delimiter(b'\t')
@@ -84,6 +85,7 @@ pub fn parse_bins_quality(
     Ok(bin_qualities)
 }
 
+/// Select a high-quality bin if it exist in the cluster
 pub fn check_high_quality_bin(
     comp: &HashSet<String>,
     bin_qualities: &HashMap<String, BinQuality>,
