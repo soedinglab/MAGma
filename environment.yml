@@ -1,4 +1,4 @@
-name: magma_env
+name: magmax_env
 channels:
   - ursky
   - conda-forge
@@ -10,6 +10,7 @@ dependencies:
   - megahit=1.2.9
   - spades=4.0.0
   - checkm2
+  - seqtk
   - pip
   - pip:
       - tensorflow==2.4.0
