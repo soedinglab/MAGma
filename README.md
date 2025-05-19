@@ -1,4 +1,4 @@
-## MAGma
+# MAGma
 MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through bin Merging and reAssembly.
 
 ## Example run
@@ -11,7 +11,7 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
     magma -b test/bins -m test/mapids -r test/reads -t 24 -q test/quality_report.tsv
 
 ## Install
-#### Prerequisites
+### Prerequisites
 
 - **Rust**: Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
 - **Conda**: You can install Conda via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution).
@@ -75,7 +75,7 @@ Option 3: Build from source
                 Print version
 
 
-#### Notes
+## Notes
 1. Input contigs should have id prefixed with the sample ID, separated by 'C'. Perform mapping and binning on contig files with these updated contig ids.
 2. Mapid files can be generated using aligner2counts (https://github.com/soedinglab/binning_benchmarking/tree/main/util#aligner2counts) with `only-mapids` option.
 
