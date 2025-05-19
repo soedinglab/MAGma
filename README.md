@@ -1,5 +1,5 @@
 ## MAGma
-MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through Merging and reAssembly.
+MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through bin Merging and reAssembly.
 
 ## Example run
 
@@ -20,15 +20,20 @@ Option 1: Use conda package
 
     conda install -c bioconda magma
     or
-    mamba install -c bioconda magma // faster installation
+    mamba install -c bioconda magma # faster installation
 
-Option 2: Use the pre-built x86-64 Linux statically compiled executable. 
-
-    wget https://github.com/soedinglab/MAGma/releases/download/latest/magma
+Option 2: Use the pre-built executable. 
+    # For x86_64 Linux (glibc-based systems)
+    wget https://github.com/soedinglab/MAGma/releases/download/v1.0.0/magma-linux.tar.gz
+    cd magma-linux/bin
     chmod +x magma
     ./magma -h
+    sudo cp magma /usr/local/bin/ # to access globally
 
-To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH.
+To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magma.
+
+    conda env create -f environment.yml
+    conda activate magma_env
 
 Option 3: Build from source
 
