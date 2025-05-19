@@ -92,9 +92,9 @@ Option 3: Build from source
 3. If input bins are not separated by sample IDs, such as when using MetaBAT2 or COMEBin on a concatenated set of contigs, use the `--split` option to automatically separate input bin by sample IDs.
 4. Make sure that headers in the read fastq files have read_id separated by space/tab (not by `.`) from other sequencer details. This is important for `seqtk` to fetch reads correctly.
 
-    `Correct format: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+    `Correct format: @SRR25448374.1 A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0.length=151#0/1`
 
-    `Wrong format: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0:CAAGTTATTG+NCGCAGAGTA.length=151#0/1`
+    `Wrong format: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0.length=151#0/1`
 
 When read ids are not seperated by space in the headers, run the below script and use it for mapping.
  
