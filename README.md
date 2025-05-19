@@ -96,7 +96,7 @@ Option 3: Build from source
 
     `Wrong format: @SRR25448374.1.A00214R:157:HLMVMDSXY:1:1101:19868:1016:N:0.length=151#0/1`
 
-When read ids are not seperated by space in the headers, run the below script and use it for mapping.
+When read ids are not seperated by space in the headers, run the below script and use the updated read file for mapping.
  
     sed -i -E 's/^(@[^.]+\.[^.]+)\./\1 /' read.fastq
 
