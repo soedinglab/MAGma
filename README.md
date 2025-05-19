@@ -22,7 +22,8 @@ Option 1: Use conda package
     or
     mamba install -c bioconda magma # faster installation
 
-Option 2: Use the pre-built executable. 
+Option 2: Use the pre-built executable.
+
     # For x86_64 Linux (glibc-based systems)
     wget https://github.com/soedinglab/MAGma/releases/download/v1.0.0/magma-linux.tar.gz
     cd magma-linux/bin
