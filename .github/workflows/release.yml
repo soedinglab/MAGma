@@ -23,7 +23,7 @@ jobs:
       - uses: "softprops/action-gh-release@v2"
         with:
           # body_path: ${{ github.workspace }}-CHANGELOG.txt
-          files: target/x86_64-pc-windows-gnu/release/magmax
+          files: target/x86_64-pc-windows-gnu/v*/magmax
           repository: soedinglab/MAGmax
           # note you'll typically need to create a personal access token
           # with permissions to create releases in the other repo
