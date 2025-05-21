@@ -5,14 +5,12 @@ use std::path::PathBuf;
 use std::process::exit;
 use assess::BinQuality;
 use clap::Parser;
-use gfaparser::parse_gfa_fastq;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use log::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 use readfetch::fetch_fastqreads;
 
-mod gfaparser;
 mod utility;
 mod assess;
 mod merge;
@@ -20,16 +18,12 @@ mod readfetch;
 mod reassemble;
 
 // check for valid input paths
-fn validate_paths(cli: &Cli) -> io::Result<(PathBuf, Option<PathBuf>, Option<PathBuf>, PathBuf, PathBuf)> {
+fn validate_paths(cli: &Cli) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
     let bindir = utility::validate_path(Some(&cli.bindir), "bindir", &cli.format);
-    let gfadir = cli.gfadir.as_ref().map(|p| utility::validate_path(
-        Some(p), "gfadir", ".gfa").to_path_buf());
-    let assemblydir = cli.assemblydir.as_ref().map(|p| utility::validate_path(
-        Some(p), "assemblydir", ".fasta").to_path_buf());
     let mapdir = utility::validate_path(Some(&cli.mapdir), "mapdir", "_mapids");
     let readdir = utility::validate_path(Some(&cli.readdir), "readdir", ".fastq");
 
-    Ok((bindir.to_path_buf(), gfadir, assemblydir, mapdir.to_path_buf(), readdir.to_path_buf()))
+    Ok((bindir.to_path_buf(), mapdir.to_path_buf(), readdir.to_path_buf()))
 }
 
 #[derive(Parser)]
@@ -38,6 +32,14 @@ struct Cli {
     /// Directory containing fasta files of bins
     #[arg(short = 'b', long = "bindir", help = "Directory containing fasta files of bins")]
     bindir: PathBuf,
+
+    /// Directory containing read files
+    #[arg(short = 'r', long = "readdir", help = "Directory containing read files")]
+    readdir: PathBuf,
+
+    /// Directory containing mapids files derived from alignment sam/bam files
+    #[arg(short = 'm', long = "mapdir", help = "Directory containing mapids files")]
+    mapdir: PathBuf,
 
     /// Average Nucleotide Identity cutoff
     #[arg(short = 'i', long = "ani", default_value_t = 99.0, help = "ANI for clustering bins (%)")]
@@ -50,14 +52,6 @@ struct Cli {
     /// Purity
     #[arg(short = 'p', long = "purity", default_value_t = 95.0, help = "Mininum purity (1- contamination) of bins (%)")]
     purity_cutoff: f64,
-
-    /// Directory containing mapids files derived from alignment sam/bam files
-    #[arg(short = 'm', long = "mapdir", help = "Directory containing mapids files")]
-    mapdir: PathBuf,
-
-    /// Directory containing read files
-    #[arg(short = 'r', long = "readdir", help = "Directory containing read files")]
-    readdir: PathBuf,
 
     /// Bin file extension
     #[arg(short = 'f', long = "format", default_value = "fasta", help = "Bin file extension")]
@@ -75,14 +69,6 @@ struct Cli {
     #[arg(short = 'q', long = "qual", help = "Quality file produced by CheckM2 (quality_report.tsv)")]
     qual: Option<PathBuf>,
 
-    /// Directory containing gfa files for metagenomic samples (in gfa1.2 format)
-    #[arg(short = 'g', long = "gfadir", help = "Directory containing gfa files")]
-    gfadir: Option<PathBuf>,
-
-    /// Directory containing sample-wise assembly contigs file in fasta format
-    #[arg(short = 'a', long = "assemblydir", help = "Directory containing assembly contigs")]
-    assemblydir: Option<PathBuf>,
-
     /// Assembler choice
     #[arg(long = "assembler", default_value = "spades", help = "assembler choice for reassembly step (spades|megahit), spades is recommended")]
     assembler: String,
@@ -94,7 +80,7 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     // Parse arguments
-    let (mut bindir, gfadir, assemblydir, mapdir, readdir) = validate_paths(&cli)?;
+    let (mut bindir, mapdir, readdir) = validate_paths(&cli)?;
     let ani_cutoff = cli.ani;
     let completeness_cutoff = cli.completeness_cutoff;
     let purity_cutoff = cli.purity_cutoff;
@@ -111,8 +97,6 @@ fn main() -> io::Result<()> {
     info!("  🔹 ANI Cutoff: {:.1}%", cli.ani);
     info!("  🔹 Completeness Cutoff: {:.1}%", cli.completeness_cutoff);
     info!("  🔹 Purity/Contamination: {:.1}%/{:.1}%", cli.purity_cutoff, contamination_cutoff);
-    info!("  🔹 GFA Directory: {:?}", gfadir);
-    info!("  🔹 Assembly Directory: {:?}", assemblydir);
     info!("  🔹 Map Directory: {:?}", mapdir);
     info!("  🔹 Read Directory: {:?}", readdir);
     info!("  🔹 File Format: {}", format);
@@ -123,9 +107,6 @@ fn main() -> io::Result<()> {
         error!("Error: Invalid assembler choice '{}'. Allowed options: 'spades' or 'megahit'.", assembler);
         exit(1);
     }
-    let gfa_flag = gfadir.is_some();
-    let gfapath = gfadir.unwrap_or_default();
-    let assemblypath = assemblydir.unwrap_or_default();
 
     let is_paired: bool = utility::check_paired_reads(&readdir);
     if is_paired {
@@ -208,7 +189,7 @@ fn main() -> io::Result<()> {
     // eg: checkm2_outputpath = <parentpathof_bindir>/mags_90comp_95purity/checkm2_results/
     let checkm2_outputpath: PathBuf = resultdir
         .join("checkm2_results");
-    
+    debug!("checkm2 output path {:?}",checkm2_outputpath);
     let checkm2_qualities = if let Some(qual_path) = &qual {
         // User have alredy provided CheckM2 quality file
         if qual_path.is_file() && fs::metadata(qual_path).map(|m| m.len() > 0).unwrap_or(false) {
@@ -240,7 +221,7 @@ fn main() -> io::Result<()> {
         Ok(quality) => quality,
         Err(_) => {
             error!(
-                "Failed to parse quality inputbins {:?}. Check input --format option",
+                "Failed to parse CheckM2 quality of inputbins {:?}. Check input --format option and if DIAMOND database is accessible for CheckM2",
                 bindir
             );
             return Ok(());
@@ -283,9 +264,6 @@ fn main() -> io::Result<()> {
             process_components(
                 &component,
                 &bindir,
-                &gfapath,
-                gfa_flag,
-                &assemblypath,
                 &mapdir,
                 &readdir,
                 &resultdir,
@@ -327,9 +305,6 @@ fn main() -> io::Result<()> {
 fn process_components(
     component: &HashSet<String>,
     bindir: &PathBuf,
-    gfadir: &PathBuf,
-    gfa_flag: bool,
-    assemblydir: &PathBuf,
     mapdir: &PathBuf,
     readdir: &PathBuf,
     resultdir: &PathBuf,
@@ -389,58 +364,13 @@ fn process_components(
     })?;
 
     // (Obsolete) Enrich bins by adding contigs that are directly linked to bin in the assembly graph
-    let mut all_enriched_scaffolds = HashSet::new();
-    if !gfa_flag {
-        all_enriched_scaffolds = utility::read_fasta(
-            &selected_binset_path.join("combined.fasta").to_string_lossy()
-        )?;
-    } else {
-        let mut create_new = true;
-        for samplebin in component {
-            let sample = bin_sample_map.get(samplebin)
-                .unwrap_or_else(|| panic!("Error: File '{}' not found in map!", samplebin));
+    let all_enriched_scaffolds = utility::read_fasta(
+        &selected_binset_path.join("combined.fasta").to_string_lossy()
+    )?;
+    
 
-            // eg: <gfadir>/S1.gfa
-            let gfa_path = gfadir.join(format!("{}.gfa", sample));
-            let gfa_file = utility::path_to_str(&gfa_path);
-            
-            // eg: <bindir>/binname_S1.fasta
-            let subbin_path = bindir.join(format!("{}.{}", samplebin, format));
-            let subbin_file = utility::path_to_str(&subbin_path);
-            
-            // eg: <assemblydir>/S1.fasta
-            let assembly_path = assemblydir.join(format!("{}.fasta", sample));
-            let assembly_file = utility::path_to_str(&assembly_path);
-            // eg: outputbin = <bindir>/0_combined/S1.fasta
-            let enriched_scaffolds = parse_gfa_fastq(
-                sample,
-                gfa_file,
-                subbin_file,
-                assembly_file,
-                selected_binset_path
-                .join("combined_enriched.fasta"),
-                create_new
-            )?;
-            create_new = false;
-            for scaffold in enriched_scaffolds {
-                // Check if the scaffold already contains the sample ID separated by 'C'.
-                if !scaffold.contains(&format!("{}C", sample)) {
-                    // Add sample ID to the scaffold if not present.
-                    let modified_scaffold = format!("{}C{}", sample, scaffold);
-                    all_enriched_scaffolds.insert(modified_scaffold);
-                } else {
-                    // If already present, keep the original scaffold.
-                    all_enriched_scaffolds.insert(scaffold.clone());
-                }
-            }
-        }
-    }
+    let scaffold_inputname:&str = "combined";
 
-    let scaffold_inputname:&str = if gfa_flag {
-        "combined_enriched"
-    } else {
-        "combined"
-    };
 
     // Collect reads mapped to contigs in the merged set
     for samplebin in component {

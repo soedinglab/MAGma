@@ -1,14 +1,14 @@
-# MAGma
-MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through bin Merging and reAssembly.
+# MAGmax
+MAGmax is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) through bin Merging and reAssembly.
 
 ### Example run
 
-    magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24
-    magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 -q quality_report.tsv // if CheckM2 result is already available
-    magma -b binsdir -m mapid_dir -r readdir -f fasta -t 24 --split // if input bins are not already split by sample id 
+    magmax -b binsdir -m mapid_dir -r readdir -f fasta -t 24
+    magmax -b binsdir -m mapid_dir -r readdir -f fasta -t 24 -q quality_report.tsv // if CheckM2 result is already available
+    magmax -b binsdir -m mapid_dir -r readdir -f fasta -t 24 --split // if input bins are not already split by sample id 
 
 ### Test run
-    magma -b test/bins -m test/mapids -r test/reads -t 24 -q test/quality_report.tsv
+    magmax -b test/bins -m test/mapids -r test/reads -t 24 -q test/quality_report.tsv
 
 ## Install
 ### Prerequisites
@@ -18,32 +18,32 @@ MAGma is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) thr
 
 Option 1: Use conda package
 
-    conda install -c bioconda magma
+    conda install -c bioconda magmax
     or
-    mamba install -c bioconda magma # faster installation
+    mamba install -c bioconda magmax # faster installation
 
 Option 2: Use the pre-built executable.
 
     # For x86_64 Linux (glibc-based systems)
-    wget https://github.com/soedinglab/MAGma/releases/download/v1.0.0/magma-linux.tar.gz
-    cd magma-linux/bin
-    chmod +x magma
-    ./magma -h
-    sudo cp magma /usr/local/bin/ # to access globally
+    wget https://github.com/soedinglab/MAGma/releases/download/v1.0.0/magmax-linux.tar.gz
+    cd magmax-linux/bin
+    chmod +x magmax
+    ./magmax -h
+    sudo cp magmax /usr/local/bin/ # to access globally
 
-To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magma.
+To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
 
     conda env create -f environment.yml
-    conda activate magma_env
+    conda activate magmax_env
 
 Option 3: Build from source
 
     git clone https://github.com/soedinglab/MAGma.git
     cd MAGma
     conda env create -f environment.yml
-    conda activate magma_env
+    conda activate magmax_env
     cargo install --path .
-    magma -h
+    magmax -h
 
 
 ## Options
@@ -63,11 +63,11 @@ Option 3: Build from source
                 Bin file extension [default: fasta]
         -t, --threads <THREADS>
                 Number of threads to use [default: 8]
-        --split
+            --split
                 Split clusters into sample-wise bins before processing
         -q, --qual <QUAL>
                 Quality file produced by CheckM2 (quality_report.tsv)
-        --assembler <ASSEMBLER>
+            --assembler <ASSEMBLER>
                 assembler choice for reassembly step (spades|megahit) [default: spades, recommended]
         -h, --help
                 Print help
