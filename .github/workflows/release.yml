@@ -1,4 +1,4 @@
-name: magma-release
+name: magmax-release
 
 on:
   workflow_dispatch:
@@ -23,8 +23,8 @@ jobs:
       - uses: "softprops/action-gh-release@v2"
         with:
           # body_path: ${{ github.workspace }}-CHANGELOG.txt
-          files: target/x86_64-pc-windows-gnu/release/magma
-          repository: soedinglab/MAGma
+          files: target/x86_64-pc-windows-gnu/release/magmax
+          repository: soedinglab/MAGmax
           # note you'll typically need to create a personal access token
           # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -44,7 +44,7 @@ jobs:
   #         prerelease: false
   #         automatic_release_tag: "latest"
   #         files: |
-  #           target/x86_64-pc-windows-gnu/release/magma
+  #           target/x86_64-pc-windows-gnu/release/magmax
 
   # build-macos:
   #   runs-on: macos-latest
@@ -61,4 +61,4 @@ jobs:
   #         prerelease: false
   #         automatic_release_tag: "latest"
   #         files: |
-  #           target/x86_64-apple-darwin/release/magma
+  #           target/x86_64-apple-darwin/release/
