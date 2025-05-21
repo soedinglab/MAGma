@@ -3,7 +3,7 @@ name="magmax"
 version="1.0.0"
 authors=["Yazhini A <yazhini@mpinat.mpg.de>", "Johannes Soeding <soeding@mpinat.mpg.de>"]
 edition = "2021"
-description = "MAGmax: A tool to MAXimize the yield of Metagenome-Assembled Genomes (MAGs) through merging and resssembly."
+description = "MAGmax: A tool to MAXimize the yield of Metagenome-Assembled Genomes (MAGs) through bin merging and resssembly."
 
 [dependencies]
 nalgebra = "0.33"
