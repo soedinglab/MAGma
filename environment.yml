@@ -1,16 +1,14 @@
 name: magmax_env
 channels:
-  - ursky
-  - conda-forge
   - bioconda
+  - conda-forge
   - defaults
 dependencies:
-  - python=3.8
-  - skani=0.2.2
-  - megahit=1.2.9
-  - spades=4.0.0
-  - checkm2
+  - skani
+  - megahit
+  - spades
   - seqtk
+  - checkm2
   - pip
   - pip:
-      - tensorflow==2.4.0
+      - checkm2
