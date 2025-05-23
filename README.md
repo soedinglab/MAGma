@@ -16,13 +16,13 @@ MAGmax is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) th
 - **Rust**: Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
 - **Conda**: You can install Conda via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution).
 
-Option 1: Use conda package
+<!-- Option 1: Use conda package
 
     conda install -c bioconda magmax
     or
-    mamba install -c bioconda magmax # faster installation
+    mamba install -c bioconda magmax # faster installation -->
 
-Option 2: Use the pre-built executable.
+Option 1: Use the pre-built executable.
 
     # For x86_64 Linux (glibc-based systems)
     wget https://github.com/soedinglab/MAGma/releases/download/v1.0.0/magmax-linux.tar.gz
@@ -31,12 +31,12 @@ Option 2: Use the pre-built executable.
     ./magmax -h
     sudo cp magmax /usr/local/bin/ # to access globally
 
-To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades) and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
+To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades), [seqtk](https://github.com/lh3/seqtk), and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
 
     conda env create -f environment.yml
     conda activate magmax_env
 
-Option 3: Build from source
+Option 2: Build from source
 
     git clone https://github.com/soedinglab/MAGma.git
     cd MAGma
