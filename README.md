@@ -16,13 +16,17 @@ MAGmax is a tool to maximize the yield of Metagenome-Assembled Genomes (MAGs) th
 - **Rust**: Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
 - **Conda**: You can install Conda via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution).
 
-<!-- Option 1: Use conda package
+### Dependencies
+
+- **CheckM2**: Install [CheckM2](https://github.com/chklovski/CheckM2), download [checkm2 database](https://zenodo.org/api/records/14897628/files/checkm2_database.tar.gz/content) and set CHECKM2DB variable correctly. CheckM2 should already be installed and accessible in your PATH, regardless of the options used to install MAGmax.
+
+Option 1: Use conda package
 
     conda install -c bioconda magmax
     or
-    mamba install -c bioconda magmax # faster installation -->
+    mamba install -c bioconda magmax # faster installation
 
-Option 1: Use the pre-built executable.
+Option 2: Use the pre-built executable.
 
     # For x86_64 Linux (glibc-based systems)
     wget https://github.com/soedinglab/MAGma/releases/download/v1.0.0/magmax-linux.tar.gz
@@ -31,7 +35,7 @@ Option 1: Use the pre-built executable.
     ./magmax -h
     sudo cp magmax /usr/local/bin/ # to access globally
 
-To use this option, [CheckM2](https://github.com/chklovski/CheckM2), [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades), [seqtk](https://github.com/lh3/seqtk), and [MEGAHIT](https://github.com/voutcn/megahit) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
+To use this option, in addition to CheckM2, [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades), and [seqtk](https://github.com/lh3/seqtk) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
 
     conda env create -f environment.yml
     conda activate magmax_env
