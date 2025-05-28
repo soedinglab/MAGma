@@ -35,14 +35,14 @@ Option 2: Use the pre-built executable.
     ./magmax -h
     sudo cp magmax /usr/local/bin/ # to access globally
 
-To use this option, in addition to CheckM2, [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades), and [seqtk](https://github.com/lh3/seqtk) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
+To use this option, in addition to CheckM2, [skani](https://github.com/bluenote-1577/skani), [SPAdes](https://github.com/ablab/spades), and [seqtk](https://github.com/lh3/seqtk), and [MEGAHIT](https://github.com/voutcn/megahit) (optional) must be installed already and available in your PATH. Alternatively, use environment.yml to create conda environment and activate it to run magmax.
 
     conda env create -f environment.yml
     conda activate magmax_env
 
 Option 2: Build from source
 
-    git clone https://github.com/soedinglab/MAGma.git
+    git clone https://github.com/soedinglab/MAGmax.git
     cd MAGma
     conda env create -f environment.yml
     conda activate magmax_env
