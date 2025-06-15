@@ -1,7 +1,6 @@
 name: magmax-release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -14,24 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           target: x86_64-unknown-linux-musl
-
-      - name: Install musl tools
-        run: sudo apt-get update && sudo apt-get install -y musl musl-tools
-
-      - name: Build binary
-        run: cargo build --release --target=x86_64-unknown-linux-musl
-
+      - run: sudo apt-get update && sudo apt-get install -y musl musl-tools
+      - run: cargo build --release --target=x86_64-unknown-linux-musl
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           files: target/x86_64-unknown-linux-musl/release/magmax
           token: ${{ secrets.GITHUB_TOKEN }}
           repository: soedinglab/MAGmax
+
   # build-windows:
   #   runs-on: ubuntu-latest
   #   steps:
