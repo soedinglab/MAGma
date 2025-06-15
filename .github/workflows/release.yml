@@ -14,20 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - run: sudo apt-get install musl musl-tools
-      - run: rustup target add x86_64-unknown-linux-musl
-      - run: cargo build --release --target=x86_64-unknown-linux-musl
-      - uses: "softprops/action-gh-release@v2"
+          target: x86_64-unknown-linux-musl
+
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl musl-tools
+
+      - name: Build binary
+        run: cargo build --release --target=x86_64-unknown-linux-musl
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
         with:
-          # body_path: ${{ github.workspace }}-CHANGELOG.txt
-          files: target/x86_64-pc-windows-gnu/v*/magmax
-          repository: soedinglab/MAGmax
-          # note you'll typically need to create a personal access token
-          # with permissions to create releases in the other repo
+          files: target/x86_64-unknown-linux-musl/release/magmax
           token: ${{ secrets.GITHUB_TOKEN }}
+          repository: soedinglab/MAGmax
   # build-windows:
   #   runs-on: ubuntu-latest
   #   steps:
